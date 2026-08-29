@@ -1,0 +1,15 @@
+import { createClient } from "@supabase/supabase-js";
+
+/**
+ * Cliente com service-role — BYPASSA RLS.
+ * Use SOMENTE em rotas/jobs de servidor confiáveis (webhooks, cron, integrações).
+ * Nunca importe em componentes client.
+ */
+export function createAdminClient() {
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) throw new Error("SUPABASE_SERVICE_ROLE_KEY ausente");
+
+  return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, key, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+}
