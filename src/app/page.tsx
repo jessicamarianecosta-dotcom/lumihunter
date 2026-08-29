@@ -170,7 +170,7 @@ export default function LandingPage() {
               Prospecção B2B com agentes de IA
             </span>
 
-            <h1 className="mt-6 max-w-4xl text-balance text-4xl font-semibold tracking-tight sm:text-6xl">
+            <h1 className="mt-6 max-w-4xl text-balance text-3xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">
               Encontre, qualifique e conquiste{" "}
               <span className="bg-gradient-to-r from-lumi-yellow to-lumi-gold bg-clip-text text-transparent">
                 novos clientes
@@ -211,7 +211,7 @@ export default function LandingPage() {
                       lumihunter.app / leads
                     </span>
                   </div>
-                  <div className="grid gap-3 p-4 sm:grid-cols-4">
+                  <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-4">
                     {[
                       { k: "Leads encontrados", v: "1.284" },
                       { k: "Qualificados", v: "437" },
@@ -224,7 +224,7 @@ export default function LandingPage() {
                       </div>
                     ))}
                   </div>
-                  <div className="flex gap-3 overflow-hidden px-4 pb-4">
+                  <div className="flex gap-3 overflow-x-auto px-4 pb-4">
                     {["Novo Lead", "Qualificado", "Contato", "Interessado"].map(
                       (col, ci) => (
                         <div key={col} className="w-40 shrink-0 rounded-lg border bg-card/60 p-2">

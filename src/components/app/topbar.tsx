@@ -21,25 +21,26 @@ export function Topbar({
 
   return (
     <>
-      <header className="flex h-14 items-center justify-between border-b bg-background px-4">
-        <div className="flex items-center gap-2">
+      <header className="flex h-14 items-center justify-between gap-2 border-b bg-background px-2 sm:px-4">
+        <div className="flex min-w-0 items-center gap-1 sm:gap-2">
           <Button
             variant="ghost"
             size="icon"
-            className="lg:hidden"
+            className="shrink-0 lg:hidden"
             onClick={() => setOpen(true)}
             aria-label="Abrir menu"
           >
             <Menu className="size-5" />
           </Button>
-          <div>
-            <p className="text-sm font-medium">{companyName}</p>
-            <p className="text-xs text-muted-foreground">
-              {email} · {role}
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium">{companyName}</p>
+            <p className="truncate text-xs text-muted-foreground">
+              <span className="hidden sm:inline">{email} · </span>
+              {role}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1">
           <Button
             variant="ghost"
             size="icon"

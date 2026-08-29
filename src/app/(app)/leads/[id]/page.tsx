@@ -74,9 +74,9 @@ export default async function LeadPage({
         <ArrowLeft className="size-4" /> Voltar ao pipeline
       </Link>
 
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">{lead.name}</h1>
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold sm:text-2xl">{lead.name}</h1>
           <p className="text-sm text-muted-foreground">
             {lead.segment ?? "—"}
             {(lead.city || lead.state) && (
@@ -104,11 +104,13 @@ export default async function LeadPage({
               <Sparkles className="mr-1 size-3" /> Score {lead.score}
             </Badge>
           )}
-          <StageSelect
-            leadId={lead.id}
-            currentStageId={lead.stage_id}
-            stages={stages ?? []}
-          />
+          <div className="flex-1 sm:flex-none">
+            <StageSelect
+              leadId={lead.id}
+              currentStageId={lead.stage_id}
+              stages={stages ?? []}
+            />
+          </div>
         </div>
       </div>
 

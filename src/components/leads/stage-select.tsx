@@ -22,7 +22,7 @@ export function StageSelect({
           void moveLeadToStage(leadId, e.target.value);
         })
       }
-      className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm sm:w-auto"
     >
       {stages.map((s) => (
         <option key={s.id} value={s.id}>

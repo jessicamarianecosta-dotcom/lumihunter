@@ -90,7 +90,7 @@ export default async function AuditoriaPage() {
       <Card>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full min-w-[640px] text-sm">
               <thead className="border-b text-left text-xs text-muted-foreground">
                 <tr>
                   <th className="p-3">Quando</th>

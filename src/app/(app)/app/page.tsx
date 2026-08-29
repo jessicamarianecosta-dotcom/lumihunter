@@ -67,15 +67,15 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Dashboard</h1>
           <p className="text-sm text-muted-foreground">
             Visão executiva de {ctx.company.name}
           </p>
         </div>
-        <Button asChild>
-          <Link href="/leads?hunter=1">Rodar Agente Hunter</Link>
+        <Button asChild className="w-full sm:w-auto">
+          <Link href="/leads">Rodar Agente Hunter</Link>
         </Button>
       </div>
 
@@ -107,8 +107,8 @@ export default async function DashboardPage() {
                   ...(pipeline ?? []).map((x) => x.lead_count ?? 0),
                 );
                 return (
-                  <div key={s.stage_id} className="flex items-center gap-3">
-                    <span className="w-40 shrink-0 text-xs text-muted-foreground">
+                  <div key={s.stage_id} className="flex items-center gap-2 sm:gap-3">
+                    <span className="w-24 shrink-0 truncate text-xs text-muted-foreground sm:w-40">
                       {s.stage_name}
                     </span>
                     <div className="h-6 flex-1 overflow-hidden rounded bg-secondary">
@@ -117,7 +117,7 @@ export default async function DashboardPage() {
                         style={{ width: `${(count / max) * 100}%` }}
                       />
                     </div>
-                    <span className="w-8 text-right text-xs tabular-nums">
+                    <span className="w-7 shrink-0 text-right text-xs tabular-nums">
                       {count}
                     </span>
                   </div>

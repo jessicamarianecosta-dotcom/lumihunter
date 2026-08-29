@@ -18,7 +18,9 @@ export default async function AppLayout({
           email={ctx.email}
           role={ctx.role}
         />
-        <main className="flex-1 overflow-y-auto p-6">{children}</main>
+        <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6">
+          {children}
+        </main>
       </div>
     </div>
   );

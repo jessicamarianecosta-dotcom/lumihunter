@@ -45,7 +45,7 @@ export function Kanban({
             key={stage.id}
             onDragOver={(e) => e.preventDefault()}
             onDrop={() => drop(stage.id)}
-            className="flex w-72 shrink-0 flex-col rounded-xl border bg-card"
+            className="flex w-[78vw] max-w-[18rem] shrink-0 flex-col rounded-xl border bg-card sm:w-72"
           >
             <div className="flex items-center justify-between border-b px-3 py-2">
               <span className="flex items-center gap-2 text-sm font-medium">

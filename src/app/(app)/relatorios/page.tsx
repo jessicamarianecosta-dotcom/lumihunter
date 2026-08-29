@@ -41,7 +41,7 @@ export default async function RelatoriosPage() {
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {Object.entries(metrics ?? {})
           .filter(([k]) => k !== "company_id")
           .map(([k, v]) => (
@@ -61,7 +61,8 @@ export default async function RelatoriosPage() {
       <Card>
         <CardContent className="p-5">
           <p className="text-sm font-medium">Desempenho por segmento</p>
-          <table className="mt-3 w-full text-sm">
+          <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[420px] text-sm">
             <thead className="text-left text-xs text-muted-foreground">
               <tr>
                 <th className="pb-2">Segmento</th>
@@ -83,6 +84,7 @@ export default async function RelatoriosPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </CardContent>
       </Card>
 

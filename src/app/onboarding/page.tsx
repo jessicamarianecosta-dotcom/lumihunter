@@ -31,7 +31,7 @@ export default function OnboardingPage() {
   );
 
   return (
-    <div className="mx-auto max-w-2xl px-6 py-12">
+    <div className="mx-auto max-w-2xl px-4 py-8 sm:px-6 sm:py-12">
       <h1 className="text-2xl font-semibold">Bem-vindo ao LumiHunter AI</h1>
       <p className="mt-1 text-muted-foreground">
         Vamos configurar sua empresa. Você pode ajustar tudo depois.
