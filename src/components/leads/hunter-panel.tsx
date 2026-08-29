@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,9 +45,17 @@ export function HunterPanel({ hasIcp }: { hasIcp: boolean }) {
         Agente Hunter
       </div>
       <p className="mt-1 text-xs text-muted-foreground">
-        {hasIcp
-          ? "Busca empresas com potencial de compra a partir do seu ICP e catálogo."
-          : "Defina um Perfil de Cliente Ideal (ICP) para habilitar o Hunter."}
+        {hasIcp ? (
+          "Busca empresas com potencial de compra a partir do seu ICP e catálogo."
+        ) : (
+          <>
+            Defina um{" "}
+            <Link href="/icp" className="font-medium text-accent underline">
+              Perfil de Cliente Ideal (ICP)
+            </Link>{" "}
+            para habilitar o Hunter.
+          </>
+        )}
       </p>
       <div className="mt-3 flex gap-2">
         <Input

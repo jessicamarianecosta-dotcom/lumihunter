@@ -42,3 +42,4 @@ export type Task = Tables<"tasks">;
 export type Activity = Tables<"activities">;
 export type AiAgent = Tables<"ai_agents">;
 export type AiRun = Tables<"ai_runs">;
+export type KnowledgeEntry = Tables<"knowledge_entries">;
