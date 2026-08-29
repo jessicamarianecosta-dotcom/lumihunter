@@ -1,6 +1,7 @@
 import { anthropic, MODELS, textOf, parseJsonFromText } from "../client";
 import { COPYWRITER_SYSTEM } from "../prompts";
 import { logAiRun } from "../log";
+import { isDemoMode, demoCopywriter } from "../demo";
 import type { Company, Lead, Product } from "@/lib/supabase/database.types";
 
 export type CopyKind = "first_touch" | "followup" | "reply" | "quote";
@@ -33,6 +34,22 @@ const KIND_LABEL: Record<CopyKind, string> = {
 export async function runCopywriter(args: RunArgs): Promise<CopyOutput> {
   const started = Date.now();
   const model = MODELS.copywriter;
+
+  if (isDemoMode()) {
+    const out = demoCopywriter(args.company, args.lead, args.product, args.kind);
+    await logAiRun({
+      companyId: args.companyId,
+      agentKind: "copywriter",
+      model: "demo",
+      leadId: args.lead.id,
+      input: { mode: "demo", kind: args.kind, lead: args.lead.name },
+      output: { ok: true },
+      usage: null,
+      durationMs: Date.now() - started,
+      createdBy: args.userId ?? null,
+    });
+    return out;
+  }
 
   const userPrompt = `## Empresa usuária (quem envia)
 ${args.company.name} — ${args.company.segment ?? ""}

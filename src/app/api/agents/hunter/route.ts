@@ -3,6 +3,7 @@ import { z } from "zod";
 import { tryGetContext, canWrite } from "@/lib/auth/context";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { runHunter } from "@/lib/anthropic/agents/hunter";
+import { isDemoMode } from "@/lib/anthropic/demo";
 import { normalizePhoneBR, normalizeEmail } from "@/lib/utils";
 import type { IcpProfile, Product } from "@/lib/supabase/database.types";
 
@@ -98,5 +99,5 @@ export async function POST(req: Request) {
     if (!error) inserted = data?.length ?? 0;
   }
 
-  return NextResponse.json({ found: found.length, inserted });
+  return NextResponse.json({ found: found.length, inserted, demo: isDemoMode() });
 }

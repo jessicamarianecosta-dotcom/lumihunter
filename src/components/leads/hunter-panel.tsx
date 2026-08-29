@@ -26,7 +26,7 @@ export function HunterPanel({ hasIcp }: { hasIcp: boolean }) {
         setMsg(data.error ?? "Falha ao rodar o Hunter.");
       } else {
         setMsg(
-          `Hunter encontrou ${data.found} empresas · ${data.inserted} novos leads adicionados.`,
+          `${data.demo ? "[modo demo] " : ""}Hunter encontrou ${data.found} empresas · ${data.inserted} novos leads adicionados.`,
         );
         router.refresh();
       }

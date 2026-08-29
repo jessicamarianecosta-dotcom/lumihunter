@@ -1,6 +1,7 @@
 import { anthropic, MODELS, textOf, parseJsonFromText } from "../client";
 import { ANALYST_SYSTEM } from "../prompts";
 import { logAiRun } from "../log";
+import { isDemoMode, demoAnalyst } from "../demo";
 
 export interface Insight {
   title: string;
@@ -18,6 +19,21 @@ interface RunArgs {
 export async function runAnalyst(args: RunArgs): Promise<Insight[]> {
   const started = Date.now();
   const model = MODELS.analyst;
+
+  if (isDemoMode()) {
+    const insights = demoAnalyst(args.metrics);
+    await logAiRun({
+      companyId: args.companyId,
+      agentKind: "analyst",
+      model: "demo",
+      input: { mode: "demo" },
+      output: { count: insights.length },
+      usage: null,
+      durationMs: Date.now() - started,
+      createdBy: args.userId ?? null,
+    });
+    return insights;
+  }
 
   const userPrompt = `## Métricas do período
 ${JSON.stringify(args.metrics, null, 2)}

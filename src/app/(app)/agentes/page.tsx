@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { isDemoMode } from "@/lib/anthropic/demo";
 
 export const metadata: Metadata = { title: "Agentes de IA" };
 
@@ -68,6 +69,15 @@ export default async function AgentsPage() {
           <p className="text-lg font-semibold">{usd.format(totalCost)}</p>
         </div>
       </div>
+
+      {isDemoMode() && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">
+          <strong>Modo demo ativo.</strong> Os agentes retornam respostas
+          simuladas (custo zero) porque não há <code>ANTHROPIC_API_KEY</code>{" "}
+          configurada. Adicione a chave nas variáveis de ambiente para usar IA
+          real.
+        </div>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         {(agents ?? []).map((a) => {

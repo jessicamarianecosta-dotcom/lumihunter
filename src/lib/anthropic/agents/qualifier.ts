@@ -1,6 +1,7 @@
 import { anthropic, MODELS, textOf, parseJsonFromText } from "../client";
 import { QUALIFIER_SYSTEM } from "../prompts";
 import { logAiRun } from "../log";
+import { isDemoMode, demoQualifier } from "../demo";
 import type { IcpProfile, Lead, Product } from "@/lib/supabase/database.types";
 
 export interface QualifierResult {
@@ -36,6 +37,22 @@ interface RunArgs {
 export async function runQualifier(args: RunArgs): Promise<QualifierResult> {
   const started = Date.now();
   const model = MODELS.qualifier;
+
+  if (isDemoMode()) {
+    const result = demoQualifier(args.lead, args.icp, args.products);
+    await logAiRun({
+      companyId: args.companyId,
+      agentKind: "qualifier",
+      model: "demo",
+      leadId: args.lead.id,
+      input: { mode: "demo", lead: args.lead.name },
+      output: { score: result.score },
+      usage: null,
+      durationMs: Date.now() - started,
+      createdBy: args.userId ?? null,
+    });
+    return result;
+  }
 
   const catalog = args.products
     .filter((p) => p.is_active)

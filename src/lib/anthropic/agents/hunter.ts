@@ -2,6 +2,7 @@ import { anthropic, MODELS, textOf, parseJsonFromText } from "../client";
 import { HUNTER_SYSTEM } from "../prompts";
 import { logAiRun } from "../log";
 import { webSearch } from "@/lib/search";
+import { isDemoMode, demoHunter } from "../demo";
 import type { IcpProfile, Product } from "@/lib/supabase/database.types";
 
 export interface HunterLead {
@@ -46,6 +47,22 @@ function buildQueries(icp: IcpProfile, extra?: string): string[] {
 export async function runHunter(args: RunArgs): Promise<HunterLead[]> {
   const started = Date.now();
   const limit = args.limit ?? 15;
+
+  if (isDemoMode()) {
+    const leads = demoHunter(args.icp, args.products, limit);
+    await logAiRun({
+      companyId: args.companyId,
+      agentKind: "hunter",
+      model: "demo",
+      input: { mode: "demo", icp: args.icp.name },
+      output: { count: leads.length },
+      usage: null,
+      durationMs: Date.now() - started,
+      createdBy: args.userId ?? null,
+    });
+    return leads;
+  }
+
   const queries = buildQueries(args.icp, args.extraQuery);
 
   const searchResults = (

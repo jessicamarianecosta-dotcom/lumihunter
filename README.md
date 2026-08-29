@@ -47,6 +47,12 @@ Preencha `.env.local` com as chaves do Supabase e da Anthropic. As integrações
 de WhatsApp e Resend ficam **desligadas** por padrão (`*_ENABLED=false`) e operam
 em **modo simulação** — o sistema registra as mensagens sem enviá-las.
 
+**Modo demo dos agentes de IA:** sem `ANTHROPIC_API_KEY` (ou com
+`AI_DEMO_MODE=true`), Hunter, Qualifier, Copywriter e Analyst devolvem respostas
+simuladas realistas — **custo zero**. Todo o fluxo (achar leads, dar score,
+gerar mensagens, insights) funciona para testar antes de contratar a API.
+Ao adicionar a chave, os agentes passam a usar a Claude API automaticamente.
+
 ### 3. Aplicar o schema do banco
 
 **Opção A — Supabase CLI (recomendado):**
