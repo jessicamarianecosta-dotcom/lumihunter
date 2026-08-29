@@ -1,6 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { estimateCostUsd } from "./client";
-import type { AiAgentKind } from "@/lib/supabase/database.types";
+import type { AiAgentKind, Json } from "@/lib/supabase/database.types";
 import type Anthropic from "@anthropic-ai/sdk";
 
 interface LogArgs {
@@ -29,8 +29,8 @@ export async function logAiRun(args: LogArgs): Promise<void> {
     model: args.model,
     lead_id: args.leadId ?? null,
     campaign_id: args.campaignId ?? null,
-    input: args.input,
-    output: args.output,
+    input: args.input as Json,
+    output: args.output as Json,
     input_tokens: inputTokens,
     output_tokens: outputTokens,
     cost_usd: estimateCostUsd(args.model, inputTokens, outputTokens),

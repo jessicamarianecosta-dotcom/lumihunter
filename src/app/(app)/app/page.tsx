@@ -101,9 +101,10 @@ export default async function DashboardPage() {
             <h2 className="text-sm font-medium">Funil de vendas</h2>
             <div className="mt-4 space-y-2">
               {(pipeline ?? []).map((s) => {
+                const count = s.lead_count ?? 0;
                 const max = Math.max(
                   1,
-                  ...(pipeline ?? []).map((x) => x.lead_count),
+                  ...(pipeline ?? []).map((x) => x.lead_count ?? 0),
                 );
                 return (
                   <div key={s.stage_id} className="flex items-center gap-3">
@@ -113,11 +114,11 @@ export default async function DashboardPage() {
                     <div className="h-6 flex-1 overflow-hidden rounded bg-secondary">
                       <div
                         className="h-full rounded bg-primary/70"
-                        style={{ width: `${(s.lead_count / max) * 100}%` }}
+                        style={{ width: `${(count / max) * 100}%` }}
                       />
                     </div>
                     <span className="w-8 text-right text-xs tabular-nums">
-                      {s.lead_count}
+                      {count}
                     </span>
                   </div>
                 );

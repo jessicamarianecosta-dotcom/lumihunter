@@ -22,9 +22,9 @@ export async function completeOnboarding(
 
   const { data: companyId, error } = await supabase.rpc("create_company", {
     p_name: name,
-    p_segment: String(formData.get("segment") || "") || null,
-    p_city: String(formData.get("city") || "") || null,
-    p_state: String(formData.get("state") || "") || null,
+    p_segment: String(formData.get("segment") || "") || undefined,
+    p_city: String(formData.get("city") || "") || undefined,
+    p_state: String(formData.get("state") || "") || undefined,
   });
   if (error || !companyId) {
     return { error: error?.message || "Não foi possível criar a empresa." };

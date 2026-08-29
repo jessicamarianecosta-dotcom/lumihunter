@@ -1,14 +1,14 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import type { Database } from "./database.types";
 
 type CookieToSet = { name: string; value: string; options: CookieOptions };
 
-/** Cliente Supabase para Server Components, Server Actions e Route Handlers.
- *  Rode `npm run db:types` e adicione o generic <Database> para tipagem completa. */
+/** Cliente Supabase para Server Components, Server Actions e Route Handlers. */
 export async function createClient() {
   const cookieStore = await cookies();
 
-  return createServerClient(
+  return createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
