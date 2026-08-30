@@ -17,6 +17,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { LeadAiActions } from "@/components/leads/lead-ai-actions";
 import { StageSelect } from "@/components/leads/stage-select";
 import { NoteForm } from "@/components/leads/note-form";
+import { LeadTags } from "@/components/leads/lead-tags";
+import { LeadTasks } from "@/components/leads/lead-tasks";
 import { formatDatePtBR } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Lead" };
@@ -38,25 +40,40 @@ export default async function LeadPage({
     .maybeSingle();
   if (!lead) notFound();
 
-  const [{ data: stages }, { data: activities }, { data: products }] =
-    await Promise.all([
-      supabase
-        .from("pipeline_stages")
-        .select("id, name")
-        .eq("company_id", ctx.company.id)
-        .order("position"),
-      supabase
-        .from("activities")
-        .select("*")
-        .eq("lead_id", id)
-        .order("created_at", { ascending: false })
-        .limit(30),
-      supabase
-        .from("products")
-        .select("id, name")
-        .eq("company_id", ctx.company.id)
-        .in("id", lead.recommended_product_ids ?? []),
-    ]);
+  const [
+    { data: stages },
+    { data: activities },
+    { data: products },
+    { data: tags },
+    { data: tasks },
+  ] = await Promise.all([
+    supabase
+      .from("pipeline_stages")
+      .select("id, name")
+      .eq("company_id", ctx.company.id)
+      .order("position"),
+    supabase
+      .from("activities")
+      .select("*")
+      .eq("lead_id", id)
+      .order("created_at", { ascending: false })
+      .limit(30),
+    supabase
+      .from("products")
+      .select("id, name")
+      .eq("company_id", ctx.company.id)
+      .in("id", lead.recommended_product_ids ?? []),
+    supabase
+      .from("lead_tags")
+      .select("id, tag")
+      .eq("lead_id", id)
+      .order("created_at"),
+    supabase
+      .from("tasks")
+      .select("id, title, status, due_at")
+      .eq("lead_id", id)
+      .order("created_at", { ascending: false }),
+  ]);
 
   const contacts = [
     { icon: Phone, value: lead.whatsapp ?? lead.phone, href: lead.whatsapp ? `https://wa.me/${lead.whatsapp.replace(/\D/g, "")}` : undefined },
@@ -165,6 +182,9 @@ export default async function LeadPage({
         </div>
 
         <div className="space-y-5">
+          <LeadTags leadId={lead.id} tags={tags ?? []} />
+          <LeadTasks leadId={lead.id} tasks={tasks ?? []} />
+
           <Card>
             <CardContent className="p-4">
               <p className="text-sm font-medium">Contato</p>

@@ -67,6 +67,68 @@ export async function archiveLead(leadId: string) {
   revalidatePath("/leads");
 }
 
+export async function addLeadTag(leadId: string, tag: string) {
+  const ctx = await getAppContext();
+  if (!canWrite(ctx.role)) throw new Error("sem permissão");
+  const t = tag.trim().toLowerCase();
+  if (!t) return;
+  const supabase = await createClient();
+  await supabase
+    .from("lead_tags")
+    .insert({ company_id: ctx.company.id, lead_id: leadId, tag: t });
+  revalidatePath(`/leads/${leadId}`);
+}
+
+export async function removeLeadTag(tagId: string, leadId: string) {
+  const ctx = await getAppContext();
+  if (!canWrite(ctx.role)) throw new Error("sem permissão");
+  const supabase = await createClient();
+  await supabase
+    .from("lead_tags")
+    .delete()
+    .eq("id", tagId)
+    .eq("company_id", ctx.company.id);
+  revalidatePath(`/leads/${leadId}`);
+}
+
+export async function addLeadTask(leadId: string, title: string, dueAt: string) {
+  const ctx = await getAppContext();
+  if (!canWrite(ctx.role)) throw new Error("sem permissão");
+  if (!title.trim()) return;
+  const supabase = await createClient();
+  await supabase.from("tasks").insert({
+    company_id: ctx.company.id,
+    lead_id: leadId,
+    title: title.trim(),
+    due_at: dueAt || null,
+    assignee_id: ctx.userId,
+    created_by: ctx.userId,
+  });
+  await supabase.from("activities").insert({
+    company_id: ctx.company.id,
+    lead_id: leadId,
+    actor_id: ctx.userId,
+    kind: "task",
+    title: `Tarefa criada: ${title.trim()}`,
+  });
+  revalidatePath(`/leads/${leadId}`);
+}
+
+export async function toggleLeadTask(taskId: string, leadId: string, done: boolean) {
+  const ctx = await getAppContext();
+  if (!canWrite(ctx.role)) throw new Error("sem permissão");
+  const supabase = await createClient();
+  await supabase
+    .from("tasks")
+    .update({
+      status: done ? "done" : "open",
+      completed_at: done ? new Date().toISOString() : null,
+    })
+    .eq("id", taskId)
+    .eq("company_id", ctx.company.id);
+  revalidatePath(`/leads/${leadId}`);
+}
+
 export async function createManualLead(formData: FormData) {
   const ctx = await getAppContext();
   if (!canWrite(ctx.role)) throw new Error("sem permissão");

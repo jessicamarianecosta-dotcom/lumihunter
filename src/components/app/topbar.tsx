@@ -6,13 +6,16 @@ import { Moon, Sun, LogOut, Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { signOut } from "@/app/auth/actions";
 import { NavList } from "./sidebar";
+import { CompanySwitcher } from "./company-switcher";
 
 export function Topbar({
-  companyName,
+  companies,
+  activeCompanyId,
   email,
   role,
 }: {
-  companyName: string;
+  companies: { id: string; name: string }[];
+  activeCompanyId: string;
   email: string;
   role: string;
 }) {
@@ -33,7 +36,10 @@ export function Topbar({
             <Menu className="size-5" />
           </Button>
           <div className="min-w-0">
-            <p className="truncate text-sm font-medium">{companyName}</p>
+            <CompanySwitcher
+              companies={companies}
+              activeId={activeCompanyId}
+            />
             <p className="truncate text-xs text-muted-foreground">
               <span className="hidden sm:inline">{email} · </span>
               {role}

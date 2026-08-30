@@ -17,15 +17,17 @@ interface SendEmailArgs {
   subject: string;
   html: string;
   from?: string;
+  apiKey?: string;
   replyTo?: string;
   headers?: Record<string, string>;
 }
 
 export async function sendEmail(args: SendEmailArgs): Promise<EmailSendResult> {
-  const apiKey = process.env.RESEND_API_KEY;
+  const apiKey = args.apiKey || process.env.RESEND_API_KEY;
   const from = args.from || process.env.RESEND_FROM_EMAIL;
+  const enabled = ENABLED || !!args.apiKey;
 
-  if (!ENABLED || !apiKey || !from) {
+  if (!enabled || !apiKey || !from) {
     return {
       ok: true,
       simulated: true,

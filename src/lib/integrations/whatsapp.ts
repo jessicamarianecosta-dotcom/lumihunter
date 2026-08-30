@@ -27,8 +27,9 @@ export async function sendWhatsAppText(
   const phoneNumberId = args.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
   const token = args.accessToken || process.env.WHATSAPP_ACCESS_TOKEN;
   const to = args.to.replace(/\D/g, "");
+  const enabled = ENABLED || !!args.accessToken;
 
-  if (!ENABLED || !phoneNumberId || !token) {
+  if (!enabled || !phoneNumberId || !token) {
     // Modo simulação: não envia, apenas retorna sucesso sintético.
     return {
       ok: true,

@@ -35,6 +35,43 @@ async function saveCompany(formData: FormData) {
   revalidatePath("/config");
 }
 
+async function saveIntegration(provider: "whatsapp" | "resend", formData: FormData) {
+  "use server";
+  const ctx = await getAppContext();
+  if (!isAdmin(ctx.role)) throw new Error("sem permissão");
+  const supabase = await createClient();
+
+  const config =
+    provider === "whatsapp"
+      ? {
+          access_token: String(formData.get("access_token") || "") || undefined,
+          phone_number_id: String(formData.get("phone_number_id") || "") || undefined,
+          business_account_id: String(formData.get("business_account_id") || "") || undefined,
+          api_version: String(formData.get("api_version") || "v21.0"),
+        }
+      : {
+          api_key: String(formData.get("api_key") || "") || undefined,
+          from_email: String(formData.get("from_email") || "") || undefined,
+          domain: String(formData.get("domain") || "") || undefined,
+        };
+
+  const hasSecret =
+    provider === "whatsapp" ? !!config.access_token : !!(config as { api_key?: string }).api_key;
+
+  await supabase.from("integrations").upsert(
+    {
+      company_id: ctx.company.id,
+      provider,
+      config,
+      is_connected: hasSecret,
+      connected_by: ctx.userId,
+      connected_at: hasSecret ? new Date().toISOString() : null,
+    },
+    { onConflict: "company_id,provider" },
+  );
+  revalidatePath("/config");
+}
+
 export default async function ConfigPage() {
   const ctx = await getAppContext();
   const supabase = await createClient();
@@ -44,7 +81,7 @@ export default async function ConfigPage() {
     await Promise.all([
       supabase
         .from("integrations")
-        .select("provider, is_connected")
+        .select("provider, is_connected, config")
         .eq("company_id", c.id),
       supabase
         .from("company_members")
@@ -56,8 +93,6 @@ export default async function ConfigPage() {
         .eq("company_id", c.id)
         .maybeSingle(),
     ]);
-
-  const providers = ["whatsapp", "resend", "google", "stripe"];
 
   return (
     <div className="space-y-6">
@@ -104,29 +139,87 @@ export default async function ConfigPage() {
         </CardContent>
       </Card>
 
+      {(() => {
+        const wa = (integrations?.find((i) => i.provider === "whatsapp")
+          ?.config ?? {}) as Record<string, string>;
+        const rs = (integrations?.find((i) => i.provider === "resend")?.config ??
+          {}) as Record<string, string>;
+        const waOn = integrations?.find((i) => i.provider === "whatsapp")
+          ?.is_connected;
+        const rsOn = integrations?.find((i) => i.provider === "resend")
+          ?.is_connected;
+        return (
+          <div className="grid gap-6 lg:grid-cols-2">
+            <Card>
+              <CardContent className="p-5">
+                <p className="flex items-center gap-2 text-sm font-medium">
+                  WhatsApp Cloud API
+                  <Badge variant={waOn ? "success" : "secondary"}>
+                    {waOn ? "conectado" : "não conectado"}
+                  </Badge>
+                </p>
+                <form
+                  action={saveIntegration.bind(null, "whatsapp")}
+                  className="mt-3 space-y-3"
+                >
+                  <F name="phone_number_id" label="Phone Number ID" defaultValue={wa.phone_number_id ?? ""} />
+                  <F name="business_account_id" label="Business Account ID" defaultValue={wa.business_account_id ?? ""} />
+                  <F name="access_token" label="Access Token (permanente)" type="password" defaultValue={wa.access_token ?? ""} />
+                  <F name="api_version" label="Versão da API" defaultValue={wa.api_version ?? "v21.0"} />
+                  <Button size="sm" type="submit" disabled={!isAdmin(ctx.role)}>
+                    Salvar
+                  </Button>
+                </form>
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  Webhook: <code>https://lumihunter.vercel.app/api/whatsapp/webhook</code>{" "}
+                  · Verify token: <code>lumihunter-verify</code>
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-5">
+                <p className="flex items-center gap-2 text-sm font-medium">
+                  Resend (e-mail)
+                  <Badge variant={rsOn ? "success" : "secondary"}>
+                    {rsOn ? "conectado" : "não conectado"}
+                  </Badge>
+                </p>
+                <form
+                  action={saveIntegration.bind(null, "resend")}
+                  className="mt-3 space-y-3"
+                >
+                  <F name="api_key" label="API Key (re_...)" type="password" defaultValue={rs.api_key ?? ""} />
+                  <F name="from_email" label="Remetente (from)" defaultValue={rs.from_email ?? ""} placeholder="contato@seudominio.com.br" />
+                  <F name="domain" label="Domínio verificado" defaultValue={rs.domain ?? ""} />
+                  <Button size="sm" type="submit" disabled={!isAdmin(ctx.role)}>
+                    Salvar
+                  </Button>
+                </form>
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  Webhook: <code>https://lumihunter.vercel.app/api/resend/webhook</code>
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+        );
+      })()}
+
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardContent className="p-5">
-            <p className="text-sm font-medium">Integrações</p>
+            <p className="text-sm font-medium">Outras integrações</p>
             <ul className="mt-3 space-y-2 text-sm">
-              {providers.map((p) => {
-                const found = integrations?.find((i) => i.provider === p);
-                return (
-                  <li key={p} className="flex items-center justify-between">
-                    <span className="capitalize">{p}</span>
-                    <Badge
-                      variant={found?.is_connected ? "success" : "secondary"}
-                    >
-                      {found?.is_connected ? "conectado" : "não conectado"}
-                    </Badge>
-                  </li>
-                );
-              })}
+              {["google", "stripe"].map((p) => (
+                <li key={p} className="flex items-center justify-between">
+                  <span className="capitalize">{p}</span>
+                  <Badge variant="secondary">em breve</Badge>
+                </li>
+              ))}
             </ul>
             <p className="mt-3 text-xs text-muted-foreground">
-              Credenciais de WhatsApp Cloud API e Resend são configuradas por
-              variáveis de ambiente nesta fase (ver .env.example). O painel de
-              conexão por empresa entra numa próxima etapa.
+              Google (login) é configurado no Supabase. Stripe entra na fase de
+              cobrança.
             </p>
           </CardContent>
         </Card>

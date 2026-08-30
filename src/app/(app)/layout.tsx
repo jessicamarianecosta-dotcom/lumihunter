@@ -14,7 +14,11 @@ export default async function AppLayout({
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Topbar
-          companyName={ctx.company.name}
+          companies={ctx.memberships.map((m) => ({
+            id: m.company_id,
+            name: m.companies.name,
+          }))}
+          activeCompanyId={ctx.company.id}
           email={ctx.email}
           role={ctx.role}
         />
