@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { getAppContext, canWrite } from "@/lib/auth/context";
 import { createClient } from "@/lib/supabase/server";
@@ -71,7 +72,9 @@ export default async function CampanhasPage() {
               <CardContent className="flex items-center justify-between p-4">
                 <div>
                   <p className="font-medium">
-                    {c.name}{" "}
+                    <Link href={`/campanhas/${c.id}`} className="hover:underline">
+                      {c.name}
+                    </Link>{" "}
                     <Badge
                       variant={
                         c.status === "active"

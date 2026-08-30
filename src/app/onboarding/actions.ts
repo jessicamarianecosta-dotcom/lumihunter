@@ -65,5 +65,6 @@ export async function completeOnboarding(
     maxAge: 60 * 60 * 24 * 365,
   });
 
-  redirect("/app");
+  // Leva direto ao ICP: é onde a IA ajuda quem não sabe definir público-alvo.
+  redirect("/icp");
 }

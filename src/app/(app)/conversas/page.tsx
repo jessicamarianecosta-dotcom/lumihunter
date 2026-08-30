@@ -31,11 +31,7 @@ export default async function ConversasPage() {
         {(conversations ?? []).map((c) => {
           const lead = c.leads as { id: string; name: string } | null;
           return (
-            <Link
-              key={c.id}
-              href={lead ? `/leads/${lead.id}` : "#"}
-              className="block"
-            >
+            <Link key={c.id} href={`/conversas/${c.id}`} className="block">
               <Card>
                 <CardContent className="flex items-center justify-between p-4">
                   <div>

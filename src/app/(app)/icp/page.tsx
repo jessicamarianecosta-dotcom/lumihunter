@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { IcpAssistant } from "@/components/icp/icp-assistant";
 
 export const metadata: Metadata = { title: "Cliente ideal (ICP)" };
 
@@ -38,11 +39,17 @@ async function createIcp(formData: FormData) {
 export default async function IcpPage() {
   const ctx = await getAppContext();
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("icp_profiles")
-    .select("*")
-    .eq("company_id", ctx.company.id)
-    .order("created_at", { ascending: false });
+  const [{ data }, { count: productCount }] = await Promise.all([
+    supabase
+      .from("icp_profiles")
+      .select("*")
+      .eq("company_id", ctx.company.id)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("products")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", ctx.company.id),
+  ]);
   const icps = (data ?? []) as import("@/lib/supabase/database.types").IcpProfile[];
 
   return (
@@ -53,6 +60,8 @@ export default async function IcpPage() {
           O Hunter usa estes perfis para saber quem procurar.
         </p>
       </div>
+
+      <IcpAssistant hasProducts={(productCount ?? 0) > 0} />
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-3 lg:col-span-2">
