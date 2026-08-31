@@ -43,3 +43,5 @@ export type Activity = Tables<"activities">;
 export type AiAgent = Tables<"ai_agents">;
 export type AiRun = Tables<"ai_runs">;
 export type KnowledgeEntry = Tables<"knowledge_entries">;
+export type MessageTemplate = Tables<"message_templates">;
+export type Invitation = Tables<"invitations">;
