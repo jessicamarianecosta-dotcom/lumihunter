@@ -19,6 +19,7 @@ import { StageSelect } from "@/components/leads/stage-select";
 import { NoteForm } from "@/components/leads/note-form";
 import { LeadTags } from "@/components/leads/lead-tags";
 import { LeadTasks } from "@/components/leads/lead-tasks";
+import { LeadEnrich } from "@/components/leads/lead-enrich";
 import { formatDatePtBR } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Lead" };
@@ -184,6 +185,7 @@ export default async function LeadPage({
         <div className="space-y-5">
           <LeadTags leadId={lead.id} tags={tags ?? []} />
           <LeadTasks leadId={lead.id} tasks={tasks ?? []} />
+          <LeadEnrich leadId={lead.id} cnpj={lead.cnpj} />
 
           <Card>
             <CardContent className="p-4">

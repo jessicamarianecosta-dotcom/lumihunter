@@ -1310,6 +1310,7 @@ export type Database = {
           address: string | null
           ai_summary: string | null
           city: string | null
+          cnpj: string | null
           company_id: string
           created_at: string
           description: string | null
@@ -1349,6 +1350,7 @@ export type Database = {
           address?: string | null
           ai_summary?: string | null
           city?: string | null
+          cnpj?: string | null
           company_id: string
           created_at?: string
           description?: string | null
@@ -1388,6 +1390,7 @@ export type Database = {
           address?: string | null
           ai_summary?: string | null
           city?: string | null
+          cnpj?: string | null
           company_id?: string
           created_at?: string
           description?: string | null
