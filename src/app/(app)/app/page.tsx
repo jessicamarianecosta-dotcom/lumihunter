@@ -12,8 +12,11 @@ import {
 } from "lucide-react";
 import { getAppContext } from "@/lib/auth/context";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { checkLeadQuota, checkAiQuota, checkMessageQuota } from "@/lib/limits";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { formatCurrencyBRL } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Dashboard" };
@@ -41,6 +44,18 @@ export default async function DashboardPage() {
         .order("total", { ascending: false })
         .limit(6),
     ]);
+
+  const admin = createAdminClient();
+  const [leadQ, aiQ, msgQ] = await Promise.all([
+    checkLeadQuota(admin, ctx.company.id, 0),
+    checkAiQuota(admin, ctx.company.id),
+    checkMessageQuota(admin, ctx.company.id),
+  ]);
+  const usage = [
+    { label: "Leads", ...leadQ },
+    { label: "IA (mês)", ...aiQ },
+    { label: "Mensagens (mês)", ...msgQ },
+  ];
 
   const m = metrics ?? {
     leads_total: 0,
@@ -154,6 +169,47 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardContent className="p-5">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-medium">Uso do plano</h2>
+            <Button asChild size="sm" variant="ghost">
+              <Link href="/config">Ver plano</Link>
+            </Button>
+          </div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            {usage.map((u) => {
+              const unlimited = u.limit < 0;
+              const pct = unlimited
+                ? 0
+                : Math.min(100, Math.round((u.current / u.limit) * 100));
+              return (
+                <div key={u.label}>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">{u.label}</span>
+                    <span className="tabular-nums">
+                      {unlimited ? (
+                        <Badge variant="secondary">ilimitado</Badge>
+                      ) : (
+                        `${u.current} / ${u.limit}`
+                      )}
+                    </span>
+                  </div>
+                  {!unlimited && (
+                    <div className="mt-1 h-1.5 overflow-hidden rounded bg-secondary">
+                      <div
+                        className={`h-full rounded ${pct >= 90 ? "bg-destructive" : "bg-primary/70"}`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
 
       <p className="flex items-center gap-2 text-xs text-muted-foreground">
         <DollarSign className="size-3.5" />
