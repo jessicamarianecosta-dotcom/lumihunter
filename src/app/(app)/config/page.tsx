@@ -1,7 +1,13 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { getAppContext, isAdmin } from "@/lib/auth/context";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { checkSeatQuota } from "@/lib/limits";
+import { getIntegrationConfig, type ResendConfig } from "@/lib/integrations/config";
+import { sendEmail } from "@/lib/integrations/resend";
+import { normalizeEmail } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -72,27 +78,117 @@ async function saveIntegration(provider: "whatsapp" | "resend", formData: FormDa
   revalidatePath("/config");
 }
 
+async function inviteMember(formData: FormData) {
+  "use server";
+  const ctx = await getAppContext();
+  if (!isAdmin(ctx.role)) throw new Error("sem permissão");
+
+  const email = normalizeEmail(String(formData.get("email") || ""));
+  const role = String(formData.get("role") || "sales");
+  if (!email) throw new Error("e-mail inválido");
+  if (role === "owner") throw new Error("papel inválido");
+
+  const admin = createAdminClient();
+  const seat = await checkSeatQuota(admin, ctx.company.id);
+  if (!seat.ok) throw new Error(seat.message);
+
+  const { data: inv, error } = await admin
+    .from("invitations")
+    .upsert(
+      {
+        company_id: ctx.company.id,
+        email,
+        role: role as "admin" | "sales" | "marketing" | "finance" | "viewer",
+        invited_by: ctx.userId,
+        accepted_at: null,
+        expires_at: new Date(Date.now() + 7 * 864e5).toISOString(),
+      },
+      { onConflict: "company_id,email" },
+    )
+    .select("token")
+    .single();
+  if (error) throw new Error(error.message);
+
+  const host =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    `https://${(await headers()).get("host") ?? "lumihunter.vercel.app"}`;
+  const link = `${host}/convite/${inv.token}`;
+
+  const resend = await getIntegrationConfig<ResendConfig>(ctx.company.id, "resend");
+  await sendEmail({
+    to: email,
+    subject: `Convite para o LumiHunter — ${ctx.company.name}`,
+    html: `<p>Você foi convidado(a) para a conta <strong>${ctx.company.name}</strong> no LumiHunter AI.</p>
+<p><a href="${link}">Aceitar convite</a></p>
+<p>Ou copie: ${link}</p>
+<p style="color:#888;font-size:12px">O convite expira em 7 dias.</p>`,
+    apiKey: resend?.config.api_key,
+    from: resend?.config.from_email,
+  });
+
+  revalidatePath("/config");
+}
+
+async function revokeInvitation(id: string) {
+  "use server";
+  const ctx = await getAppContext();
+  if (!isAdmin(ctx.role)) throw new Error("sem permissão");
+  const supabase = await createClient();
+  await supabase
+    .from("invitations")
+    .delete()
+    .eq("id", id)
+    .eq("company_id", ctx.company.id);
+  revalidatePath("/config");
+}
+
+async function removeMember(userId: string) {
+  "use server";
+  const ctx = await getAppContext();
+  if (!isAdmin(ctx.role)) throw new Error("sem permissão");
+  if (userId === ctx.userId) throw new Error("você não pode remover a si mesmo");
+  const supabase = await createClient();
+  await supabase
+    .from("company_members")
+    .delete()
+    .eq("company_id", ctx.company.id)
+    .eq("user_id", userId)
+    .neq("role", "owner");
+  revalidatePath("/config");
+}
+
 export default async function ConfigPage() {
   const ctx = await getAppContext();
   const supabase = await createClient();
   const c = ctx.company;
 
-  const [{ data: integrations }, { data: members }, { data: sub }] =
-    await Promise.all([
-      supabase
-        .from("integrations")
-        .select("provider, is_connected, config")
-        .eq("company_id", c.id),
-      supabase
-        .from("company_members")
-        .select("role, user_id, profiles(full_name)")
-        .eq("company_id", c.id),
-      supabase
-        .from("subscriptions")
-        .select("plan, limits")
-        .eq("company_id", c.id)
-        .maybeSingle(),
-    ]);
+  const [
+    { data: integrations },
+    { data: members },
+    { data: sub },
+    { data: invites },
+  ] = await Promise.all([
+    supabase
+      .from("integrations")
+      .select("provider, is_connected, config")
+      .eq("company_id", c.id),
+    supabase
+      .from("company_members")
+      .select("role, user_id, profiles(full_name)")
+      .eq("company_id", c.id),
+    supabase
+      .from("subscriptions")
+      .select("plan, limits")
+      .eq("company_id", c.id)
+      .maybeSingle(),
+    supabase
+      .from("invitations")
+      .select("id, email, role, expires_at")
+      .eq("company_id", c.id)
+      .is("accepted_at", null)
+      .order("created_at", { ascending: false }),
+  ]);
+  const admin = isAdmin(ctx.role);
 
   return (
     <div className="space-y-6">
@@ -231,19 +327,90 @@ export default async function ConfigPage() {
               Plano atual:{" "}
               <Badge variant="outline">{sub?.plan ?? c.plan}</Badge>
             </p>
+
             <ul className="mt-3 space-y-1 text-sm">
               {(members ?? []).map((m) => (
                 <li
                   key={m.user_id}
-                  className="flex items-center justify-between text-muted-foreground"
+                  className="flex items-center justify-between gap-2 text-muted-foreground"
                 >
-                  <span>
+                  <span className="truncate">
                     {profileName(m.profiles) ?? m.user_id.slice(0, 8)}
                   </span>
-                  <Badge variant="outline">{m.role}</Badge>
+                  <span className="flex items-center gap-2">
+                    <Badge variant="outline">{m.role}</Badge>
+                    {admin && m.role !== "owner" && m.user_id !== ctx.userId && (
+                      <form action={removeMember.bind(null, m.user_id)}>
+                        <button
+                          type="submit"
+                          className="text-xs text-destructive hover:underline"
+                        >
+                          remover
+                        </button>
+                      </form>
+                    )}
+                  </span>
                 </li>
               ))}
             </ul>
+
+            {!!invites?.length && (
+              <ul className="mt-3 space-y-1 border-t pt-3 text-sm">
+                {invites.map((i) => (
+                  <li
+                    key={i.id}
+                    className="flex items-center justify-between gap-2 text-muted-foreground"
+                  >
+                    <span className="truncate">{i.email}</span>
+                    <span className="flex items-center gap-2">
+                      <Badge variant="secondary">convite · {i.role}</Badge>
+                      {admin && (
+                        <form action={revokeInvitation.bind(null, i.id)}>
+                          <button
+                            type="submit"
+                            className="text-xs text-destructive hover:underline"
+                          >
+                            cancelar
+                          </button>
+                        </form>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {admin && (
+              <form
+                action={inviteMember}
+                className="mt-4 flex flex-wrap items-end gap-2 border-t pt-4"
+              >
+                <div className="min-w-[180px] flex-1 space-y-1.5">
+                  <Label htmlFor="invite-email">Convidar por e-mail</Label>
+                  <Input
+                    id="invite-email"
+                    name="email"
+                    type="email"
+                    placeholder="colega@empresa.com"
+                    required
+                  />
+                </div>
+                <select
+                  name="role"
+                  defaultValue="sales"
+                  className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="admin">Admin</option>
+                  <option value="sales">Vendas</option>
+                  <option value="marketing">Marketing</option>
+                  <option value="finance">Financeiro</option>
+                  <option value="viewer">Leitura</option>
+                </select>
+                <Button size="sm" type="submit">
+                  Enviar convite
+                </Button>
+              </form>
+            )}
           </CardContent>
         </Card>
       </div>

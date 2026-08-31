@@ -6,6 +6,12 @@ import { createClient } from "@/lib/supabase/server";
 
 export type AuthState = { error?: string; message?: string };
 
+/** Só aceita caminhos internos ("/algo"), nunca URLs absolutas. */
+function safeNext(value: FormDataEntryValue | null, fallback: string): string {
+  const s = String(value ?? "");
+  return s.startsWith("/") && !s.startsWith("//") ? s : fallback;
+}
+
 async function origin() {
   const h = await headers();
   return (
@@ -23,7 +29,7 @@ export async function signInWithPassword(
   const password = String(formData.get("password"));
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) return { error: "E-mail ou senha inválidos." };
-  redirect("/app");
+  redirect(safeNext(formData.get("next"), "/app"));
 }
 
 export async function signUp(
@@ -43,7 +49,7 @@ export async function signUp(
     },
   });
   if (error) return { error: error.message };
-  redirect("/onboarding");
+  redirect(safeNext(formData.get("next"), "/onboarding"));
 }
 
 export async function signInWithMagicLink(
@@ -60,11 +66,14 @@ export async function signInWithMagicLink(
   return { message: "Enviamos um link de acesso para o seu e-mail." };
 }
 
-export async function signInWithGoogle() {
+export async function signInWithGoogle(formData?: FormData) {
   const supabase = await createClient();
+  const next = safeNext(formData?.get("next") ?? null, "/app");
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
-    options: { redirectTo: `${await origin()}/auth/callback` },
+    options: {
+      redirectTo: `${await origin()}/auth/callback?next=${encodeURIComponent(next)}`,
+    },
   });
   if (error) return;
   if (data.url) redirect(data.url);

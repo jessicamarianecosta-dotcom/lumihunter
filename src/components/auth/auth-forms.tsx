@@ -32,9 +32,10 @@ function Feedback({ state }: { state: AuthState }) {
   return null;
 }
 
-function GoogleButton() {
+function GoogleButton({ next }: { next?: string }) {
   return (
     <form action={signInWithGoogle}>
+      {next && <input type="hidden" name="next" value={next} />}
       <Button type="submit" variant="outline" className="w-full">
         Continuar com Google
       </Button>
@@ -42,7 +43,7 @@ function GoogleButton() {
   );
 }
 
-export function LoginForm() {
+export function LoginForm({ next }: { next?: string }) {
   const [state, action] = useActionState(signInWithPassword, {});
   const [magicState, magicAction] = useActionState(signInWithMagicLink, {});
   return (
@@ -54,6 +55,7 @@ export function LoginForm() {
         </p>
       </div>
       <form action={action} className="space-y-3">
+        {next && <input type="hidden" name="next" value={next} />}
         <div className="space-y-1.5">
           <Label htmlFor="email">E-mail</Label>
           <Input id="email" name="email" type="email" required />
@@ -71,7 +73,7 @@ export function LoginForm() {
         <div className="absolute inset-x-0 top-1/2 -z-10 h-px bg-border" />
       </div>
 
-      <GoogleButton />
+      <GoogleButton next={next} />
 
       <form action={magicAction} className="space-y-2">
         <Label htmlFor="magic-email" className="text-xs text-muted-foreground">
@@ -91,7 +93,10 @@ export function LoginForm() {
           Esqueci a senha
         </Link>{" "}
         ·{" "}
-        <Link href="/signup" className="underline">
+        <Link
+          href={next ? `/signup?next=${encodeURIComponent(next)}` : "/signup"}
+          className="underline"
+        >
           Criar conta
         </Link>
       </p>
@@ -99,7 +104,7 @@ export function LoginForm() {
   );
 }
 
-export function SignUpForm() {
+export function SignUpForm({ next }: { next?: string }) {
   const [state, action] = useActionState(signUp, {});
   return (
     <div className="space-y-6">
@@ -110,6 +115,7 @@ export function SignUpForm() {
         </p>
       </div>
       <form action={action} className="space-y-3">
+        {next && <input type="hidden" name="next" value={next} />}
         <div className="space-y-1.5">
           <Label htmlFor="full_name">Nome completo</Label>
           <Input id="full_name" name="full_name" required />
@@ -131,10 +137,13 @@ export function SignUpForm() {
         <Feedback state={state} />
         <SubmitButton>Criar conta</SubmitButton>
       </form>
-      <GoogleButton />
+      <GoogleButton next={next} />
       <p className="text-sm text-muted-foreground">
         Já tem conta?{" "}
-        <Link href="/login" className="underline">
+        <Link
+          href={next ? `/login?next=${encodeURIComponent(next)}` : "/login"}
+          className="underline"
+        >
           Entrar
         </Link>
       </p>
