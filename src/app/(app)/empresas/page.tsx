@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { CsvImportButton, CsvExportButton } from "@/components/shared/csv-tools";
 import type { Lead } from "@/lib/supabase/database.types";
 
 export const metadata: Metadata = { title: "Empresas" };
@@ -40,9 +41,18 @@ export default async function EmpresasPage({
         </p>
       </div>
 
-      <form className="max-w-sm">
-        <Input name="q" placeholder="Buscar por nome…" defaultValue={q ?? ""} />
-      </form>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <form className="max-w-sm flex-1">
+          <Input name="q" placeholder="Buscar por nome…" defaultValue={q ?? ""} />
+        </form>
+        <div className="flex flex-wrap items-start gap-2">
+          <CsvImportButton
+            endpoint="/api/leads/import"
+            hint="Colunas: nome, cnpj, segmento, cidade, uf, telefone, email…"
+          />
+          <CsvExportButton href="/api/leads/export" />
+        </div>
+      </div>
 
       <Card>
         <CardContent className="p-0">

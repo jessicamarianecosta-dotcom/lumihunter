@@ -6,6 +6,7 @@ import { runHunter } from "@/lib/anthropic/agents/hunter";
 import { isDemoMode } from "@/lib/anthropic/demo";
 import { normalizePhoneBR, normalizeEmail } from "@/lib/utils";
 import { enforceRateLimit, LIMITS } from "@/lib/ratelimit";
+import { enforceAiQuota } from "@/lib/limits";
 import type { IcpProfile, Product } from "@/lib/supabase/database.types";
 
 export const maxDuration = 120;
@@ -30,6 +31,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "payload inválido" }, { status: 400 });
 
   const admin = createAdminClient();
+  const quota = await enforceAiQuota(admin, ctx.company.id);
+  if (quota) return quota;
 
   const icpQuery = admin
     .from("icp_profiles")

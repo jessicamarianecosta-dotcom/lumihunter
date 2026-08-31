@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { createProduct } from "./actions";
+import { CsvImportButton, CsvExportButton } from "@/components/shared/csv-tools";
 import { formatCurrencyBRL } from "@/lib/utils";
 import type { Product } from "@/lib/supabase/database.types";
 
@@ -25,11 +26,20 @@ export default async function ProductsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Produtos</h1>
-        <p className="text-sm text-muted-foreground">
-          O catálogo alimenta os agentes Hunter e Copywriter.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">Produtos</h1>
+          <p className="text-sm text-muted-foreground">
+            O catálogo alimenta os agentes Hunter e Copywriter.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-start gap-2">
+          <CsvImportButton
+            endpoint="/api/products/import"
+            hint="Colunas: nome, tipo, descrição, preço_médio, palavras-chave…"
+          />
+          <CsvExportButton href="/api/products/export" />
+        </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">

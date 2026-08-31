@@ -11,6 +11,7 @@ import {
 } from "@/lib/integrations/config";
 import { normalizePhoneBR } from "@/lib/utils";
 import { enforceRateLimit, LIMITS } from "@/lib/ratelimit";
+import { enforceMessageQuota } from "@/lib/limits";
 
 const Body = z.object({
   leadId: z.string().uuid(),
@@ -34,6 +35,8 @@ export async function POST(req: Request) {
   const { leadId, channel, body, subject } = parsed.data;
 
   const admin = createAdminClient();
+  const quota = await enforceMessageQuota(admin, ctx.company.id);
+  if (quota) return quota;
   const { data: lead } = await admin
     .from("leads")
     .select("*")

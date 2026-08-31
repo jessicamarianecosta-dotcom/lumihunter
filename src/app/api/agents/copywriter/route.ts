@@ -4,6 +4,7 @@ import { tryGetContext, canWrite } from "@/lib/auth/context";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { runCopywriter } from "@/lib/anthropic/agents/copywriter";
 import { enforceRateLimit, LIMITS } from "@/lib/ratelimit";
+import { enforceAiQuota } from "@/lib/limits";
 import type { Lead, Product } from "@/lib/supabase/database.types";
 
 export const maxDuration = 60;
@@ -29,6 +30,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "payload inválido" }, { status: 400 });
 
   const admin = createAdminClient();
+  const quota = await enforceAiQuota(admin, ctx.company.id);
+  if (quota) return quota;
+
   const { data: lead } = await admin
     .from("leads")
     .select("*")

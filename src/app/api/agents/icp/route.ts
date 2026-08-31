@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { runIcpAssistant } from "@/lib/anthropic/agents/icp-assistant";
 import { isDemoMode } from "@/lib/anthropic/demo";
 import { enforceRateLimit, LIMITS } from "@/lib/ratelimit";
+import { enforceAiQuota } from "@/lib/limits";
 import type { Product } from "@/lib/supabase/database.types";
 
 export const maxDuration = 60;
@@ -20,8 +21,11 @@ export async function POST(req: Request) {
   const limited = await enforceRateLimit("ai", ctx.company.id, LIMITS.ai);
   if (limited) return limited;
 
-  const { apply } = Body.parse(await req.json().catch(() => ({})));
   const admin = createAdminClient();
+  const quota = await enforceAiQuota(admin, ctx.company.id);
+  if (quota) return quota;
+
+  const { apply } = Body.parse(await req.json().catch(() => ({})));
 
   const { data: products } = await admin
     .from("products")

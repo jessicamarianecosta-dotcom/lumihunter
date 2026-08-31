@@ -11,6 +11,7 @@ import {
 } from "@/lib/integrations/config";
 import { normalizePhoneBR } from "@/lib/utils";
 import { enforceRateLimit, LIMITS } from "@/lib/ratelimit";
+import { enforceMessageQuota } from "@/lib/limits";
 import type { Lead, Product } from "@/lib/supabase/database.types";
 
 export const maxDuration = 300;
@@ -30,6 +31,9 @@ export async function POST(
   if (limited) return limited;
 
   const admin = createAdminClient();
+  const quota = await enforceMessageQuota(admin, ctx.company.id);
+  if (quota) return quota;
+
   const { data: campaign } = await admin
     .from("campaigns")
     .select("id, channel, product_id")

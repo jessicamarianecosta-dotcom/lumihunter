@@ -4,6 +4,7 @@ import { tryGetContext, canWrite } from "@/lib/auth/context";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { runSalesCoach } from "@/lib/anthropic/agents/sales-coach";
 import { enforceRateLimit, LIMITS } from "@/lib/ratelimit";
+import { enforceAiQuota } from "@/lib/limits";
 import type { Lead } from "@/lib/supabase/database.types";
 
 export const maxDuration = 60;
@@ -21,6 +22,8 @@ export async function POST(req: Request) {
 
   const { conversationId } = Body.parse(await req.json().catch(() => ({})));
   const admin = createAdminClient();
+  const quota = await enforceAiQuota(admin, ctx.company.id);
+  if (quota) return quota;
 
   const { data: conv } = await admin
     .from("conversations")
