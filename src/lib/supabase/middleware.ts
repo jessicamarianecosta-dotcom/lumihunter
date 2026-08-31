@@ -4,7 +4,15 @@ import type { Database } from "./database.types";
 
 type CookieToSet = { name: string; value: string; options: CookieOptions };
 
-const PUBLIC_PATHS = ["/", "/login", "/signup", "/forgot-password", "/auth"];
+const PUBLIC_PATHS = [
+  "/",
+  "/login",
+  "/signup",
+  "/forgot-password",
+  "/auth",
+  "/privacidade",
+  "/termos",
+];
 
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });

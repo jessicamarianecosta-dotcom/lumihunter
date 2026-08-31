@@ -451,10 +451,12 @@ export default function LandingPage() {
             </span>
             LumiHunter AI © {new Date().getFullYear()}
           </div>
-          <div className="flex gap-6">
+          <div className="flex flex-wrap justify-center gap-x-6 gap-y-2">
             <Link href="/login" className="hover:text-foreground">Entrar</Link>
             <Link href="/signup" className="hover:text-foreground">Criar conta</Link>
             <a href="#planos" className="hover:text-foreground">Planos</a>
+            <Link href="/privacidade" className="hover:text-foreground">Privacidade</Link>
+            <Link href="/termos" className="hover:text-foreground">Termos</Link>
           </div>
         </div>
       </footer>
