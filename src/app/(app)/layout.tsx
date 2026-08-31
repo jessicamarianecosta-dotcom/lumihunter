@@ -1,6 +1,7 @@
 import { getAppContext } from "@/lib/auth/context";
 import { Sidebar } from "@/components/app/sidebar";
 import { Topbar } from "@/components/app/topbar";
+import { CommandPalette } from "@/components/app/command-palette";
 
 export default async function AppLayout({
   children,
@@ -11,6 +12,7 @@ export default async function AppLayout({
 
   return (
     <div className="flex h-screen overflow-hidden">
+      <CommandPalette />
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Topbar

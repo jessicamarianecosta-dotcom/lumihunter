@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useTheme } from "next-themes";
-import { Moon, Sun, LogOut, Menu, X } from "lucide-react";
+import { Moon, Sun, LogOut, Menu, X, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { signOut } from "@/app/auth/actions";
 import { NavList } from "./sidebar";
@@ -47,6 +47,27 @@ export function Topbar({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new Event("lh:command"))}
+            className="hidden items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-secondary sm:flex"
+            aria-label="Abrir busca de comandos"
+          >
+            <Search className="size-3.5" />
+            Buscar
+            <kbd className="rounded border bg-muted px-1 font-mono text-[10px]">
+              ⌘K
+            </kbd>
+          </button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="sm:hidden"
+            onClick={() => window.dispatchEvent(new Event("lh:command"))}
+            aria-label="Buscar"
+          >
+            <Search className="size-4" />
+          </Button>
           <Button
             variant="ghost"
             size="icon"
