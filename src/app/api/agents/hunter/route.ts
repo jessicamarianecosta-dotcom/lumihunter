@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { runHunter } from "@/lib/anthropic/agents/hunter";
 import { isDemoMode } from "@/lib/anthropic/demo";
 import { normalizePhoneBR, normalizeEmail } from "@/lib/utils";
+import { enforceRateLimit, LIMITS } from "@/lib/ratelimit";
 import type { IcpProfile, Product } from "@/lib/supabase/database.types";
 
 export const maxDuration = 120;
@@ -20,6 +21,9 @@ export async function POST(req: Request) {
   if (!ctx) return NextResponse.json({ error: "não autenticado" }, { status: 401 });
   if (!canWrite(ctx.role))
     return NextResponse.json({ error: "sem permissão" }, { status: 403 });
+
+  const limited = await enforceRateLimit("ai", ctx.company.id, LIMITS.ai);
+  if (limited) return limited;
 
   const parsed = Body.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success)

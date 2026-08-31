@@ -10,6 +10,7 @@ import {
   type ResendConfig,
 } from "@/lib/integrations/config";
 import { normalizePhoneBR } from "@/lib/utils";
+import { enforceRateLimit, LIMITS } from "@/lib/ratelimit";
 import type { Lead, Product } from "@/lib/supabase/database.types";
 
 export const maxDuration = 300;
@@ -24,6 +25,9 @@ export async function POST(
   if (!ctx) return NextResponse.json({ error: "não autenticado" }, { status: 401 });
   if (!canWrite(ctx.role))
     return NextResponse.json({ error: "sem permissão" }, { status: 403 });
+
+  const limited = await enforceRateLimit("dispatch", ctx.company.id, LIMITS.dispatch);
+  if (limited) return limited;
 
   const admin = createAdminClient();
   const { data: campaign } = await admin

@@ -10,6 +10,7 @@ import {
   type ResendConfig,
 } from "@/lib/integrations/config";
 import { normalizePhoneBR } from "@/lib/utils";
+import { enforceRateLimit, LIMITS } from "@/lib/ratelimit";
 
 const Body = z.object({
   leadId: z.string().uuid(),
@@ -23,6 +24,9 @@ export async function POST(req: Request) {
   if (!ctx) return NextResponse.json({ error: "não autenticado" }, { status: 401 });
   if (!canWrite(ctx.role))
     return NextResponse.json({ error: "sem permissão" }, { status: 403 });
+
+  const limited = await enforceRateLimit("send", ctx.company.id, LIMITS.send);
+  if (limited) return limited;
 
   const parsed = Body.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success)
