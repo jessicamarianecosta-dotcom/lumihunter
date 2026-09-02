@@ -5,6 +5,17 @@ import { getAppContext, canWrite } from "@/lib/auth/context";
 import { createClient } from "@/lib/supabase/server";
 import type { LeadStatus } from "@/lib/supabase/database.types";
 
+export type LeadsView = "kanban" | "list";
+
+export async function setLeadsViewPreference(view: LeadsView) {
+  const ctx = await getAppContext();
+  const supabase = await createClient();
+  await supabase
+    .from("profiles")
+    .update({ leads_view_preference: view })
+    .eq("id", ctx.userId);
+}
+
 export async function moveLeadToStage(leadId: string, stageId: string) {
   const ctx = await getAppContext();
   if (!canWrite(ctx.role)) throw new Error("sem permissão");
@@ -64,6 +75,47 @@ export async function archiveLead(leadId: string) {
     .update({ is_archived: true })
     .eq("id", leadId)
     .eq("company_id", ctx.company.id);
+  revalidatePath("/leads");
+}
+
+export async function archiveLeadsBulk(leadIds: string[]) {
+  const ctx = await getAppContext();
+  if (!canWrite(ctx.role)) throw new Error("sem permissão");
+  if (leadIds.length === 0) return;
+  const supabase = await createClient();
+  await supabase
+    .from("leads")
+    .update({ is_archived: true })
+    .in("id", leadIds)
+    .eq("company_id", ctx.company.id);
+  revalidatePath("/leads");
+}
+
+export async function moveLeadsToStageBulk(leadIds: string[], stageId: string) {
+  const ctx = await getAppContext();
+  if (!canWrite(ctx.role)) throw new Error("sem permissão");
+  if (leadIds.length === 0) return;
+  const supabase = await createClient();
+
+  const { data: stage } = await supabase
+    .from("pipeline_stages")
+    .select("slug, is_won, is_lost")
+    .eq("id", stageId)
+    .eq("company_id", ctx.company.id)
+    .maybeSingle();
+
+  const status: LeadStatus | undefined = stage?.is_won
+    ? "won"
+    : stage?.is_lost
+      ? "lost"
+      : (stage?.slug as LeadStatus | undefined);
+
+  await supabase
+    .from("leads")
+    .update({ stage_id: stageId, ...(status ? { status } : {}) })
+    .in("id", leadIds)
+    .eq("company_id", ctx.company.id);
+
   revalidatePath("/leads");
 }
 
