@@ -1870,6 +1870,7 @@ export type Database = {
           created_at: string
           full_name: string | null
           id: string
+          leads_view_preference: string
           locale: string | null
           phone: string | null
           updated_at: string
@@ -1879,6 +1880,7 @@ export type Database = {
           created_at?: string
           full_name?: string | null
           id: string
+          leads_view_preference?: string
           locale?: string | null
           phone?: string | null
           updated_at?: string
@@ -1888,6 +1890,7 @@ export type Database = {
           created_at?: string
           full_name?: string | null
           id?: string
+          leads_view_preference?: string
           locale?: string | null
           phone?: string | null
           updated_at?: string
