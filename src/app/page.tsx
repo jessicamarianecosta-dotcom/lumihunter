@@ -15,6 +15,7 @@ import {
   Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { InstallAppButton } from "@/components/shared/install-app-button";
 
 export const metadata = {
   title: "LumiHunter AI — Prospecção B2B com inteligência artificial",
@@ -130,7 +131,8 @@ export default function LandingPage() {
             <a href="#planos" className="hover:text-foreground">Planos</a>
           </nav>
           <div className="flex items-center gap-2">
-            <Button asChild variant="ghost" size="sm">
+            <InstallAppButton />
+            <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
               <Link href="/login">Entrar</Link>
             </Button>
             <Button asChild size="sm">

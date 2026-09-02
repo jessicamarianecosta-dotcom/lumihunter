@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { PwaRegister } from "@/components/shared/pwa-register";
+import { IosInstallHint } from "@/components/shared/ios-install-hint";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
@@ -50,6 +51,7 @@ export default function RootLayout({
           {children}
         </ThemeProvider>
         <PwaRegister />
+        <IosInstallHint />
       </body>
     </html>
   );

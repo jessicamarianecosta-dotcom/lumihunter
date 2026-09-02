@@ -48,7 +48,7 @@ export function Topbar({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          <InstallAppButton className="hidden md:inline-flex" />
+          <InstallAppButton />
           <button
             type="button"
             onClick={() => window.dispatchEvent(new Event("lh:command"))}
