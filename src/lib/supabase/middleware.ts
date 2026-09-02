@@ -12,6 +12,14 @@ const PUBLIC_PATHS = [
   "/auth",
   "/privacidade",
   "/termos",
+  "/manifest.webmanifest",
+  "/sw.js",
+  "/offline.html",
+  "/icon",
+  "/apple-icon",
+  "/icon-192",
+  "/icon-512",
+  "/icon-maskable-512",
 ];
 
 export async function updateSession(request: NextRequest) {
