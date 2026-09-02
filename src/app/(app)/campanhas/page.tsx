@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { HelpTip } from "@/components/help/help-tip";
 import { formatDatePtBR } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Campanhas" };
@@ -59,7 +60,14 @@ export default async function CampanhasPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">Campanhas</h1>
+        <h1 className="flex items-center gap-1.5 text-2xl font-semibold">
+          Campanhas
+          <HelpTip
+            title="Campanhas"
+            text="Organize abordagens por canal, segmento e cidade, com uma meta de leads. Ative ou pause quando quiser."
+            articleSlug="o-que-sao-campanhas"
+          />
+        </h1>
         <p className="text-sm text-muted-foreground">
           Sequências de abordagem por canal, segmento e cidade.
         </p>

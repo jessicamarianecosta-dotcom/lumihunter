@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { HelpTip } from "@/components/help/help-tip";
 
 export function HunterPanel({ hasIcp }: { hasIcp: boolean }) {
   const router = useRouter();
@@ -40,9 +41,14 @@ export function HunterPanel({ hasIcp }: { hasIcp: boolean }) {
 
   return (
     <div className="rounded-xl border bg-card p-4">
-      <div className="flex items-center gap-2 text-sm font-medium">
+      <div className="flex items-center gap-1.5 text-sm font-medium">
         <Sparkles className="size-4 text-accent" />
         Agente Hunter
+        <HelpTip
+          title="Agente Hunter"
+          text="Busca empresas reais com potencial de compra a partir do seu Perfil de Cliente Ideal (ICP) e do seu catálogo de produtos."
+          articleSlug="o-que-e-o-agente-hunter"
+        />
       </div>
       <p className="mt-1 text-xs text-muted-foreground">
         {hasIcp ? (

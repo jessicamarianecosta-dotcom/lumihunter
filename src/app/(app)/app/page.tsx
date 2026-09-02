@@ -17,6 +17,7 @@ import { checkLeadQuota, checkAiQuota, checkMessageQuota } from "@/lib/limits";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { HelpTip } from "@/components/help/help-tip";
 import { formatCurrencyBRL } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Dashboard" };
@@ -84,7 +85,14 @@ export default async function DashboardPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Dashboard</h1>
+          <h1 className="flex items-center gap-1.5 text-2xl font-semibold">
+            Dashboard
+            <HelpTip
+              title="Dashboard"
+              text="Visão executiva da sua operação: leads encontrados, qualificados, mensagens enviadas, o funil de vendas e o uso do seu plano."
+              articleSlug="o-que-e-o-dashboard"
+            />
+          </h1>
           <p className="text-sm text-muted-foreground">
             Visão executiva de {ctx.company.name}
           </p>

@@ -4,6 +4,7 @@ import { getAppContext } from "@/lib/auth/context";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { HelpTip } from "@/components/help/help-tip";
 import { formatDatePtBR } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Conversas" };
@@ -21,7 +22,14 @@ export default async function ConversasPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-semibold">Conversas</h1>
+        <h1 className="flex items-center gap-1.5 text-2xl font-semibold">
+          Conversas
+          <HelpTip
+            title="Conversas"
+            text="Central única de WhatsApp e e-mail com os leads. Peça ao Sales Coach uma sugestão de resposta dentro de qualquer conversa."
+            articleSlug="o-que-e-a-central-de-conversas"
+          />
+        </h1>
         <p className="text-sm text-muted-foreground">
           Central única de WhatsApp e e-mail.
         </p>
