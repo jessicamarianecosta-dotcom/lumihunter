@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { HelpTip } from "@/components/help/help-tip";
 import { isDemoMode } from "@/lib/anthropic/demo";
 
 export const metadata: Metadata = { title: "Agentes de IA" };
@@ -59,7 +60,14 @@ export default async function AgentsPage() {
     <div className="space-y-6">
       <div className="flex items-end justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Agentes de IA</h1>
+          <h1 className="flex items-center gap-1.5 text-2xl font-semibold">
+            Agentes de IA
+            <HelpTip
+              title="Agentes de IA"
+              text="Hunter, Qualifier, Copywriter, Sales Coach e Analyst. Ajuste modelo, temperatura e prompt de cada um aqui."
+              articleSlug="como-funcionam-os-agentes-de-ia"
+            />
+          </h1>
           <p className="text-sm text-muted-foreground">
             Hunter, Qualifier, Copywriter, Sales Coach e Analyst.
           </p>

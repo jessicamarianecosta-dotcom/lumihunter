@@ -3,6 +3,7 @@ import { getAppContext } from "@/lib/auth/context";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardContent } from "@/components/ui/card";
 import { AnalystPanel } from "@/components/app/analyst-panel";
+import { HelpTip } from "@/components/help/help-tip";
 
 export const metadata: Metadata = { title: "Relatórios" };
 
@@ -34,7 +35,14 @@ export default async function RelatoriosPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">Relatórios</h1>
+        <h1 className="flex items-center gap-1.5 text-2xl font-semibold">
+          Relatórios
+          <HelpTip
+            title="Relatórios"
+            text="Números da operação por segmento e os insights automáticos do Agente Analyst."
+            articleSlug="como-funcionam-os-relatorios"
+          />
+        </h1>
         <p className="text-sm text-muted-foreground">
           Exportação para PDF/Excel/CSV entra numa próxima etapa. Use o Analyst
           para insights automáticos.

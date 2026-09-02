@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { SeedLumiLifeButton } from "@/components/app/seed-lumilife";
+import { HelpTip } from "@/components/help/help-tip";
 
 export const metadata: Metadata = { title: "Configurações" };
 
@@ -192,7 +193,14 @@ export default async function ConfigPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">Configurações</h1>
+      <h1 className="flex items-center gap-1.5 text-2xl font-semibold">
+        Configurações
+        <HelpTip
+          title="Configurações"
+          text="Dados da empresa, integrações de WhatsApp e e-mail, time, papéis e plano da conta."
+          articleSlug="visao-geral-das-configuracoes"
+        />
+      </h1>
 
       <Card>
         <CardContent className="p-5">

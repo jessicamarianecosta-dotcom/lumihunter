@@ -20,6 +20,7 @@ import { NoteForm } from "@/components/leads/note-form";
 import { LeadTags } from "@/components/leads/lead-tags";
 import { LeadTasks } from "@/components/leads/lead-tasks";
 import { LeadEnrich } from "@/components/leads/lead-enrich";
+import { HelpTip } from "@/components/help/help-tip";
 import { formatDatePtBR } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Lead" };
@@ -122,6 +123,11 @@ export default async function LeadPage({
               <Sparkles className="mr-1 size-3" /> Score {lead.score}
             </Badge>
           )}
+          <HelpTip
+            title="Score do lead"
+            text="Nota de 0 a 100 calculada pelo Agente Qualifier, que mede a aderência do lead ao seu ICP e catálogo. É uma estimativa, não uma garantia de venda."
+            articleSlug="como-interpretar-o-score-do-lead"
+          />
           <div className="flex-1 sm:flex-none">
             <StageSelect
               leadId={lead.id}

@@ -13,6 +13,7 @@ import {
   BarChart3,
   ScrollText,
   Settings,
+  HelpCircle,
   type LucideIcon,
 } from "lucide-react";
 
@@ -36,5 +37,6 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/tarefas", label: "Tarefas", icon: CheckSquare },
   { href: "/relatorios", label: "Relatórios", icon: BarChart3 },
   { href: "/auditoria", label: "Auditoria", icon: ScrollText },
+  { href: "/ajuda", label: "Central de Ajuda", icon: HelpCircle },
   { href: "/config", label: "Configurações", icon: Settings },
 ];

@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { IcpAssistant } from "@/components/icp/icp-assistant";
+import { HelpTip } from "@/components/help/help-tip";
 
 export const metadata: Metadata = { title: "Cliente ideal (ICP)" };
 
@@ -55,7 +56,14 @@ export default async function IcpPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">Perfil de Cliente Ideal (ICP)</h1>
+        <h1 className="flex items-center gap-1.5 text-2xl font-semibold">
+          Perfil de Cliente Ideal (ICP)
+          <HelpTip
+            title="Cliente ideal (ICP)"
+            text="Descreva o tipo de empresa que você busca — o Agente Hunter usa esses perfis para saber onde e o que procurar."
+            articleSlug="o-que-e-o-perfil-de-cliente-ideal-icp"
+          />
+        </h1>
         <p className="text-sm text-muted-foreground">
           O Hunter usa estes perfis para saber quem procurar.
         </p>
