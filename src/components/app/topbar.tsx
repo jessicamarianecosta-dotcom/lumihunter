@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { signOut } from "@/app/auth/actions";
 import { NavList } from "./sidebar";
 import { CompanySwitcher } from "./company-switcher";
+import { InstallAppButton } from "@/components/shared/install-app-button";
 
 export function Topbar({
   companies,
@@ -47,6 +48,7 @@ export function Topbar({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          <InstallAppButton className="hidden md:inline-flex" />
           <button
             type="button"
             onClick={() => window.dispatchEvent(new Event("lh:command"))}
