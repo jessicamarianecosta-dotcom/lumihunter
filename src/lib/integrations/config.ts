@@ -14,10 +14,16 @@ export interface ResendConfig {
   domain?: string;
 }
 
+export interface SearchConfig {
+  /** "serper" | "tavily" | "mock" */
+  provider?: string;
+  api_key?: string;
+}
+
 /** Lê a config de integração da empresa (fallback: undefined -> usa env vars). */
 export async function getIntegrationConfig<T>(
   companyId: string,
-  provider: "whatsapp" | "resend",
+  provider: "whatsapp" | "resend" | "search",
 ): Promise<{ connected: boolean; config: T } | null> {
   const admin = createAdminClient();
   const { data } = await admin

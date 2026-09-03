@@ -5,7 +5,11 @@ import { getAppContext, isAdmin } from "@/lib/auth/context";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { checkSeatQuota } from "@/lib/limits";
-import { getIntegrationConfig, type ResendConfig } from "@/lib/integrations/config";
+import {
+  getIntegrationConfig,
+  type ResendConfig,
+  type SearchConfig,
+} from "@/lib/integrations/config";
 import { sendEmail } from "@/lib/integrations/resend";
 import {
   getAiIntegrationConfig,
@@ -77,6 +81,38 @@ async function saveIntegration(provider: "whatsapp" | "resend", formData: FormDa
     {
       company_id: ctx.company.id,
       provider,
+      config,
+      is_connected: hasSecret,
+      connected_by: ctx.userId,
+      connected_at: hasSecret ? new Date().toISOString() : null,
+    },
+    { onConflict: "company_id,provider" },
+  );
+  revalidatePath("/config");
+}
+
+async function saveSearchIntegration(formData: FormData) {
+  "use server";
+  const ctx = await getAppContext();
+  if (!isAdmin(ctx.role)) throw new Error("sem permissão");
+  const supabase = await createClient();
+
+  const provider = String(formData.get("search_provider") || "mock");
+  const apiKey = String(formData.get("api_key") || "").trim();
+
+  const current = (
+    await getIntegrationConfig<SearchConfig>(ctx.company.id, "search")
+  )?.config;
+  const config = {
+    provider,
+    api_key: apiKey || current?.api_key || undefined,
+  };
+  const hasSecret = !!config.api_key;
+
+  await supabase.from("integrations").upsert(
+    {
+      company_id: ctx.company.id,
+      provider: "search",
       config,
       is_connected: hasSecret,
       connected_by: ctx.userId,
@@ -240,6 +276,12 @@ export default async function ConfigPage() {
   const openaiKeyMasked = maskApiKey(aiConfig.openai?.api_key);
   const anthropicConfigured = !!aiConfig.anthropic?.api_key || !!process.env.ANTHROPIC_API_KEY;
   const openaiConfigured = !!aiConfig.openai?.api_key || !!process.env.OPENAI_API_KEY;
+
+  const searchRow = integrations?.find((i) => i.provider === "search");
+  const searchConfig = (searchRow?.config ?? {}) as SearchConfig;
+  const searchProvider = searchConfig.provider || "mock";
+  const searchKeyMasked = maskApiKey(searchConfig.api_key);
+  const searchConnected = !!searchRow?.is_connected;
 
   return (
     <div className="space-y-6">
@@ -478,6 +520,55 @@ export default async function ConfigPage() {
               </form>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="space-y-3 p-5">
+          <p className="flex items-center gap-2 text-sm font-medium">
+            Busca de leads (Hunter)
+            <Badge variant={searchConnected ? "success" : "secondary"}>
+              {searchConnected ? "configurada" : "modo mock"}
+            </Badge>
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Provedor usado pelo agente Hunter para encontrar empresas reais na
+            web. Sem chave configurada, o Hunter usa dados sintéticos (mock).
+          </p>
+          <form action={saveSearchIntegration} className="flex flex-wrap items-end gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="search_provider">Provedor</Label>
+              <select
+                id="search_provider"
+                name="search_provider"
+                defaultValue={searchProvider}
+                disabled={!admin}
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="tavily">Tavily</option>
+                <option value="serper">Serper (Google)</option>
+                <option value="mock">Mock (sem chave)</option>
+              </select>
+            </div>
+            <div className="min-w-[220px] flex-1 space-y-1.5">
+              <Label htmlFor="search_api_key">Chave da API</Label>
+              <Input
+                id="search_api_key"
+                name="api_key"
+                type="password"
+                autoComplete="off"
+                placeholder={searchKeyMasked ?? "tvly-... ou sua chave Serper"}
+              />
+              {searchKeyMasked && (
+                <p className="text-[11px] text-muted-foreground">
+                  Atual: {searchKeyMasked}
+                </p>
+              )}
+            </div>
+            <Button size="sm" type="submit" disabled={!admin}>
+              Salvar
+            </Button>
+          </form>
         </CardContent>
       </Card>
 
