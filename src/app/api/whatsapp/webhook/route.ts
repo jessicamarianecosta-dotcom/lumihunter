@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { verifyWebhook, parseInbound } from "@/lib/integrations/whatsapp";
+import { verifyWebhook, parseInbound, parseStatuses } from "@/lib/integrations/whatsapp";
 
 // GET: handshake de verificação da Meta
 export async function GET(req: NextRequest) {
@@ -15,9 +15,18 @@ export async function POST(req: NextRequest) {
   if (!payload) return NextResponse.json({ ok: true });
 
   const inbound = parseInbound(payload);
-  if (inbound.length === 0) return NextResponse.json({ ok: true });
+  const statuses = parseStatuses(payload);
+  if (inbound.length === 0 && statuses.length === 0)
+    return NextResponse.json({ ok: true });
 
   const admin = createAdminClient();
+
+  for (const s of statuses) {
+    await admin
+      .from("messages")
+      .update({ status: s.status })
+      .eq("provider_message_id", s.waMessageId);
+  }
 
   for (const msg of inbound) {
     // localiza a integração pelo phone_number_id -> empresa
