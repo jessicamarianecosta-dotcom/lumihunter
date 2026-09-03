@@ -3,7 +3,7 @@ import { z } from "zod";
 import { tryGetContext, canWrite } from "@/lib/auth/context";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { runHunter } from "@/lib/anthropic/agents/hunter";
-import { isDemoMode } from "@/lib/anthropic/demo";
+import { isAiDemoMode } from "@/lib/ai";
 import { normalizePhoneBR, normalizeEmail } from "@/lib/utils";
 import { enforceRateLimit, LIMITS } from "@/lib/ratelimit";
 import { enforceAiQuota } from "@/lib/limits";
@@ -106,5 +106,9 @@ export async function POST(req: Request) {
     if (!error) inserted = data?.length ?? 0;
   }
 
-  return NextResponse.json({ found: found.length, inserted, demo: isDemoMode() });
+  return NextResponse.json({
+    found: found.length,
+    inserted,
+    demo: await isAiDemoMode(ctx.company.id),
+  });
 }

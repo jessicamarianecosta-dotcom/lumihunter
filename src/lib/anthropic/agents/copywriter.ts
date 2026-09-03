@@ -1,7 +1,8 @@
-import { anthropic, MODELS, textOf, parseJsonFromText } from "../client";
+import { parseJsonFromText } from "../client";
 import { COPYWRITER_SYSTEM } from "../prompts";
-import { logAiRun } from "../log";
-import { isDemoMode, demoCopywriter } from "../demo";
+import { generateText, isAiDemoMode } from "@/lib/ai";
+import { logAiRun } from "@/lib/ai/log";
+import { demoCopywriter } from "../demo";
 import type { Company, Lead, Product } from "@/lib/supabase/database.types";
 
 export type CopyKind = "first_touch" | "followup" | "reply" | "quote";
@@ -33,13 +34,13 @@ const KIND_LABEL: Record<CopyKind, string> = {
 
 export async function runCopywriter(args: RunArgs): Promise<CopyOutput> {
   const started = Date.now();
-  const model = MODELS.copywriter;
 
-  if (isDemoMode()) {
+  if (await isAiDemoMode(args.companyId)) {
     const out = demoCopywriter(args.company, args.lead, args.product, args.kind);
     await logAiRun({
       companyId: args.companyId,
       agentKind: "copywriter",
+      provider: "demo",
       model: "demo",
       leadId: args.lead.id,
       input: { mode: "demo", kind: args.kind, lead: args.lead.name },
@@ -89,19 +90,24 @@ Gere variações do MESMO approach para cada canal, curtas e específicas. JSON:
     cta: "",
   };
   let usage = null;
+  let provider: "anthropic" | "openai" = "anthropic";
+  let model = "unknown";
   try {
-    const msg = await anthropic().messages.create({
-      model,
-      max_tokens: 2000,
+    const res = await generateText({
+      companyId: args.companyId,
       system: COPYWRITER_SYSTEM,
-      messages: [{ role: "user", content: userPrompt }],
+      prompt: userPrompt,
+      maxTokens: 2000,
     });
-    usage = msg.usage;
-    out = parseJsonFromText<CopyOutput>(textOf(msg));
+    usage = res.usage;
+    provider = res.provider;
+    model = res.model;
+    out = parseJsonFromText<CopyOutput>(res.text);
   } finally {
     await logAiRun({
       companyId: args.companyId,
       agentKind: "copywriter",
+      provider,
       model,
       leadId: args.lead.id,
       input: { kind: args.kind, lead: args.lead.name },

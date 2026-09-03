@@ -3,7 +3,7 @@ import { z } from "zod";
 import { tryGetContext, canWrite } from "@/lib/auth/context";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { runIcpAssistant } from "@/lib/anthropic/agents/icp-assistant";
-import { isDemoMode } from "@/lib/anthropic/demo";
+import { isAiDemoMode } from "@/lib/ai";
 import { enforceRateLimit, LIMITS } from "@/lib/ratelimit";
 import { enforceAiQuota } from "@/lib/limits";
 import type { Product } from "@/lib/supabase/database.types";
@@ -71,5 +71,9 @@ export async function POST(req: Request) {
     icpId = icp?.id ?? null;
   }
 
-  return NextResponse.json({ suggestion, icpId, demo: isDemoMode() });
+  return NextResponse.json({
+    suggestion,
+    icpId,
+    demo: await isAiDemoMode(ctx.company.id),
+  });
 }

@@ -1,7 +1,8 @@
-import { anthropic, MODELS, textOf, parseJsonFromText } from "../client";
+import { parseJsonFromText } from "../client";
 import { QUALIFIER_SYSTEM } from "../prompts";
-import { logAiRun } from "../log";
-import { isDemoMode, demoQualifier } from "../demo";
+import { generateText, isAiDemoMode } from "@/lib/ai";
+import { logAiRun } from "@/lib/ai/log";
+import { demoQualifier } from "../demo";
 import type { IcpProfile, Lead, Product } from "@/lib/supabase/database.types";
 
 export interface QualifierResult {
@@ -36,13 +37,13 @@ interface RunArgs {
 
 export async function runQualifier(args: RunArgs): Promise<QualifierResult> {
   const started = Date.now();
-  const model = MODELS.qualifier;
 
-  if (isDemoMode()) {
+  if (await isAiDemoMode(args.companyId)) {
     const result = demoQualifier(args.lead, args.icp, args.products);
     await logAiRun({
       companyId: args.companyId,
       agentKind: "qualifier",
+      provider: "demo",
       model: "demo",
       leadId: args.lead.id,
       input: { mode: "demo", lead: args.lead.name },
@@ -99,20 +100,25 @@ Atribua um lead score (0-100) e explique. JSON:
     recommended_product_names: [],
   };
   let usage = null;
+  let provider: "anthropic" | "openai" = "anthropic";
+  let model = "unknown";
   try {
-    const msg = await anthropic().messages.create({
-      model,
-      max_tokens: 2000,
+    const res = await generateText({
+      companyId: args.companyId,
       system: QUALIFIER_SYSTEM,
-      messages: [{ role: "user", content: userPrompt }],
+      prompt: userPrompt,
+      maxTokens: 2000,
     });
-    usage = msg.usage;
-    result = parseJsonFromText<QualifierResult>(textOf(msg));
+    usage = res.usage;
+    provider = res.provider;
+    model = res.model;
+    result = parseJsonFromText<QualifierResult>(res.text);
     result.score = Math.max(0, Math.min(100, Math.round(result.score)));
   } finally {
     await logAiRun({
       companyId: args.companyId,
       agentKind: "qualifier",
+      provider,
       model,
       leadId: args.lead.id,
       input: { lead: args.lead.name },

@@ -1,8 +1,9 @@
-import { anthropic, MODELS, textOf, parseJsonFromText } from "../client";
+import { parseJsonFromText } from "../client";
 import { HUNTER_SYSTEM } from "../prompts";
-import { logAiRun } from "../log";
+import { generateText, isAiDemoMode } from "@/lib/ai";
+import { logAiRun } from "@/lib/ai/log";
 import { webSearch } from "@/lib/search";
-import { isDemoMode, demoHunter } from "../demo";
+import { demoHunter } from "../demo";
 import type { IcpProfile, Product } from "@/lib/supabase/database.types";
 
 export interface HunterLead {
@@ -48,11 +49,12 @@ export async function runHunter(args: RunArgs): Promise<HunterLead[]> {
   const started = Date.now();
   const limit = args.limit ?? 15;
 
-  if (isDemoMode()) {
+  if (await isAiDemoMode(args.companyId)) {
     const leads = demoHunter(args.icp, args.products, limit);
     await logAiRun({
       companyId: args.companyId,
       agentKind: "hunter",
+      provider: "demo",
       model: "demo",
       input: { mode: "demo", icp: args.icp.name },
       output: { count: leads.length },
@@ -121,23 +123,27 @@ comprar algum item do catálogo. Responda com JSON no formato:
   ]
 }`;
 
-  const model = MODELS.hunter;
   let leads: HunterLead[] = [];
   let usage = null;
+  let provider: "anthropic" | "openai" = "anthropic";
+  let model = "unknown";
   try {
-    const msg = await anthropic().messages.create({
-      model,
-      max_tokens: 8000,
+    const res = await generateText({
+      companyId: args.companyId,
       system: HUNTER_SYSTEM,
-      messages: [{ role: "user", content: userPrompt }],
+      prompt: userPrompt,
+      maxTokens: 8000,
     });
-    usage = msg.usage;
-    const parsed = parseJsonFromText<{ leads: HunterLead[] }>(textOf(msg));
+    usage = res.usage;
+    provider = res.provider;
+    model = res.model;
+    const parsed = parseJsonFromText<{ leads: HunterLead[] }>(res.text);
     leads = (parsed.leads ?? []).slice(0, limit);
   } finally {
     await logAiRun({
       companyId: args.companyId,
       agentKind: "hunter",
+      provider,
       model,
       input: { queries, results: searchResults.length },
       output: { count: leads.length },

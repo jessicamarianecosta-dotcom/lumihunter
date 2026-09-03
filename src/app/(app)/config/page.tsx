@@ -7,6 +7,13 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { checkSeatQuota } from "@/lib/limits";
 import { getIntegrationConfig, type ResendConfig } from "@/lib/integrations/config";
 import { sendEmail } from "@/lib/integrations/resend";
+import {
+  getAiIntegrationConfig,
+  saveActiveAiProvider,
+  saveAiProviderKey,
+  maskApiKey,
+  type AiProviderId,
+} from "@/lib/ai/settings";
 import { normalizeEmail } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +22,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { SeedLumiLifeButton } from "@/components/app/seed-lumilife";
+import { AiTestConnectionButton } from "@/components/app/ai-test-connection";
 import { HelpTip } from "@/components/help/help-tip";
 
 export const metadata: Metadata = { title: "Configurações" };
@@ -75,6 +83,37 @@ async function saveIntegration(provider: "whatsapp" | "resend", formData: FormDa
       connected_at: hasSecret ? new Date().toISOString() : null,
     },
     { onConflict: "company_id,provider" },
+  );
+  revalidatePath("/config");
+}
+
+async function saveAiProviderSelection(formData: FormData) {
+  "use server";
+  const ctx = await getAppContext();
+  if (!isAdmin(ctx.role)) throw new Error("sem permissão");
+  const active = (String(formData.get("active_provider") || "anthropic") ===
+  "openai"
+    ? "openai"
+    : "anthropic") as AiProviderId;
+  await saveActiveAiProvider(ctx.company.id, active, {
+    anthropic: String(formData.get("anthropic_model") || "") || undefined,
+    openai: String(formData.get("openai_model") || "") || undefined,
+  });
+  revalidatePath("/config");
+}
+
+async function saveAiKey(provider: AiProviderId, formData: FormData) {
+  "use server";
+  const ctx = await getAppContext();
+  if (!isAdmin(ctx.role)) throw new Error("sem permissão");
+  const apiKey = String(formData.get("api_key") || "").trim();
+  const model = String(formData.get("model") || "").trim();
+  await saveAiProviderKey(
+    ctx.company.id,
+    provider,
+    apiKey || null,
+    model || undefined,
+    ctx.userId,
   );
   revalidatePath("/config");
 }
@@ -168,6 +207,7 @@ export default async function ConfigPage() {
     { data: members },
     { data: sub },
     { data: invites },
+    aiIntegration,
   ] = await Promise.all([
     supabase
       .from("integrations")
@@ -188,8 +228,18 @@ export default async function ConfigPage() {
       .eq("company_id", c.id)
       .is("accepted_at", null)
       .order("created_at", { ascending: false }),
+    getAiIntegrationConfig(c.id),
   ]);
   const admin = isAdmin(ctx.role);
+
+  const aiConfig = aiIntegration?.config ?? {};
+  const activeAiProvider: AiProviderId = aiConfig.active_provider ?? "anthropic";
+  const anthropicModel = aiConfig.anthropic?.model ?? "claude-haiku-4-5";
+  const openaiModel = aiConfig.openai?.model ?? "gpt-5.6-luna";
+  const anthropicKeyMasked = maskApiKey(aiConfig.anthropic?.api_key);
+  const openaiKeyMasked = maskApiKey(aiConfig.openai?.api_key);
+  const anthropicConfigured = !!aiConfig.anthropic?.api_key || !!process.env.ANTHROPIC_API_KEY;
+  const openaiConfigured = !!aiConfig.openai?.api_key || !!process.env.OPENAI_API_KEY;
 
   return (
     <div className="space-y-6">
@@ -308,6 +358,128 @@ export default async function ConfigPage() {
           </div>
         );
       })()}
+
+      <Card>
+        <CardContent className="space-y-4 p-5">
+          <p className="text-sm font-medium">Inteligência Artificial</p>
+
+          <div className="rounded-md border p-3 text-sm">
+            <p className="text-xs text-muted-foreground">IA ativa</p>
+            <p className="mt-1 flex flex-wrap items-center gap-2 font-medium">
+              <span
+                className={`h-2 w-2 rounded-full ${activeAiProvider === "openai" ? "bg-emerald-500" : "bg-amber-500"}`}
+              />
+              {activeAiProvider === "openai" ? "OpenAI" : "Anthropic"}
+              <span className="font-normal text-muted-foreground">
+                · modelo {activeAiProvider === "openai" ? openaiModel : anthropicModel}
+              </span>
+            </p>
+          </div>
+
+          <form
+            action={saveAiProviderSelection}
+            className="flex flex-wrap items-end gap-3 border-b pb-4"
+          >
+            <div className="space-y-1.5">
+              <Label htmlFor="active_provider">Provedor ativo</Label>
+              <select
+                id="active_provider"
+                name="active_provider"
+                defaultValue={activeAiProvider}
+                disabled={!admin}
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic</option>
+              </select>
+            </div>
+            <input type="hidden" name="anthropic_model" value={anthropicModel} />
+            <input type="hidden" name="openai_model" value={openaiModel} />
+            <Button size="sm" type="submit" disabled={!admin}>
+              Definir como ativo
+            </Button>
+            <AiTestConnectionButton />
+          </form>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <p className="flex items-center gap-2 text-sm font-medium">
+                OpenAI
+                <Badge variant={openaiConfigured ? "success" : "secondary"}>
+                  {openaiConfigured ? "configurada" : "não configurada"}
+                </Badge>
+              </p>
+              <form
+                action={saveAiKey.bind(null, "openai")}
+                className="mt-2 space-y-2"
+              >
+                <div className="space-y-1.5">
+                  <Label htmlFor="openai_api_key">Chave da API OpenAI</Label>
+                  <Input
+                    id="openai_api_key"
+                    name="api_key"
+                    type="password"
+                    autoComplete="off"
+                    placeholder={openaiKeyMasked ?? "sk-..."}
+                  />
+                  {openaiKeyMasked && (
+                    <p className="text-[11px] text-muted-foreground">
+                      Atual: {openaiKeyMasked}
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="openai_model">Modelo</Label>
+                  <Input id="openai_model" name="model" defaultValue={openaiModel} />
+                </div>
+                <Button size="sm" type="submit" disabled={!admin}>
+                  Salvar
+                </Button>
+              </form>
+            </div>
+
+            <div>
+              <p className="flex items-center gap-2 text-sm font-medium">
+                Anthropic
+                <Badge variant={anthropicConfigured ? "success" : "secondary"}>
+                  {anthropicConfigured ? "configurada" : "não configurada"}
+                </Badge>
+              </p>
+              <form
+                action={saveAiKey.bind(null, "anthropic")}
+                className="mt-2 space-y-2"
+              >
+                <div className="space-y-1.5">
+                  <Label htmlFor="anthropic_api_key">Chave da API Anthropic</Label>
+                  <Input
+                    id="anthropic_api_key"
+                    name="api_key"
+                    type="password"
+                    autoComplete="off"
+                    placeholder={anthropicKeyMasked ?? "sk-ant-..."}
+                  />
+                  {anthropicKeyMasked && (
+                    <p className="text-[11px] text-muted-foreground">
+                      Atual: {anthropicKeyMasked}
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="anthropic_model">Modelo</Label>
+                  <Input
+                    id="anthropic_model"
+                    name="model"
+                    defaultValue={anthropicModel}
+                  />
+                </div>
+                <Button size="sm" type="submit" disabled={!admin}>
+                  Salvar
+                </Button>
+              </form>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>

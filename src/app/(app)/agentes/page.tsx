@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { HelpTip } from "@/components/help/help-tip";
-import { isDemoMode } from "@/lib/anthropic/demo";
+import { isAiDemoMode, resolveActiveAi } from "@/lib/ai";
 
 export const metadata: Metadata = { title: "Agentes de IA" };
 
@@ -56,6 +56,9 @@ export default async function AgentsPage() {
     maximumFractionDigits: 4,
   });
 
+  const demo = await isAiDemoMode(ctx.company.id);
+  const { provider } = await resolveActiveAi(ctx.company.id);
+
   return (
     <div className="space-y-6">
       <div className="flex items-end justify-between">
@@ -78,12 +81,13 @@ export default async function AgentsPage() {
         </div>
       </div>
 
-      {isDemoMode() && (
+      {demo && (
         <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">
           <strong>Modo demo ativo.</strong> Os agentes retornam respostas
-          simuladas (custo zero) porque não há <code>ANTHROPIC_API_KEY</code>{" "}
-          configurada. Adicione a chave nas variáveis de ambiente para usar IA
-          real.
+          simuladas (custo zero) porque a{" "}
+          {provider === "openai" ? "OpenAI" : "Anthropic"} não está configurada.
+          Adicione uma chave em Configurações → Inteligência Artificial para
+          usar IA real.
         </div>
       )}
 
