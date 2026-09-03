@@ -2,13 +2,9 @@ import { NextResponse } from "next/server";
 import { tryGetContext, canWrite } from "@/lib/auth/context";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { runCopywriter } from "@/lib/anthropic/agents/copywriter";
-import { sendWhatsAppText } from "@/lib/integrations/whatsapp";
+import { sendMessage as sendWhatsAppMessage } from "@/lib/whatsapp/service";
 import { sendEmail } from "@/lib/integrations/resend";
-import {
-  getIntegrationConfig,
-  type WhatsAppConfig,
-  type ResendConfig,
-} from "@/lib/integrations/config";
+import { getIntegrationConfig, type ResendConfig } from "@/lib/integrations/config";
 import { normalizePhoneBR } from "@/lib/utils";
 import { enforceRateLimit, LIMITS } from "@/lib/ratelimit";
 import { enforceMessageQuota } from "@/lib/limits";
@@ -43,10 +39,8 @@ export async function POST(
   if (!campaign) return NextResponse.json({ error: "campanha não encontrada" }, { status: 404 });
 
   const channel = campaign.channel === "email" ? "email" : "whatsapp";
-  const integ = await getIntegrationConfig<WhatsAppConfig & ResendConfig>(
-    ctx.company.id,
-    channel === "whatsapp" ? "whatsapp" : "resend",
-  );
+  const resendConfig =
+    channel === "email" ? await getIntegrationConfig<ResendConfig>(ctx.company.id, "resend") : null;
 
   let product: Pick<Product, "name" | "description" | "price_avg" | "applications"> | null = null;
   if (campaign.product_id) {
@@ -135,18 +129,13 @@ export async function POST(
 
     const result =
       channel === "whatsapp"
-        ? await sendWhatsAppText({
-            to: target,
-            body,
-            accessToken: integ?.config.access_token,
-            phoneNumberId: integ?.config.phone_number_id,
-          })
+        ? await sendWhatsAppMessage(ctx.company.id, { to: target, body })
         : await sendEmail({
             to: target,
             subject: subject ?? `Contato de ${ctx.company.name}`,
             html: body.replace(/\n/g, "<br>"),
-            apiKey: integ?.config.api_key,
-            from: integ?.config.from_email,
+            apiKey: resendConfig?.config.api_key,
+            from: resendConfig?.config.from_email,
           });
     if (result.simulated) simulated = true;
 
