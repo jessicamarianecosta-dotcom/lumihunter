@@ -7,6 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { checkSeatQuota } from "@/lib/limits";
 import {
   getIntegrationConfig,
+  type WhatsAppConfig,
   type ResendConfig,
   type SearchConfig,
 } from "@/lib/integrations/config";
@@ -27,6 +28,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { SeedLumiLifeButton } from "@/components/app/seed-lumilife";
 import { AiTestConnectionButton } from "@/components/app/ai-test-connection";
+import { IntegrationTestButton } from "@/components/app/integration-test-button";
 import { HelpTip } from "@/components/help/help-tip";
 
 export const metadata: Metadata = { title: "Configurações" };
@@ -60,16 +62,25 @@ async function saveIntegration(provider: "whatsapp" | "resend", formData: FormDa
   if (!isAdmin(ctx.role)) throw new Error("sem permissão");
   const supabase = await createClient();
 
+  // Campos de segredo (access_token / api_key) só são sobrescritos quando o
+  // admin digita um valor novo — deixar em branco preserva o que já estava
+  // salvo, já que o campo nunca é pré-preenchido com o valor real.
+  const current = (
+    await getIntegrationConfig<WhatsAppConfig & ResendConfig>(ctx.company.id, provider)
+  )?.config;
+  const newAccessToken = String(formData.get("access_token") || "").trim();
+  const newApiKey = String(formData.get("api_key") || "").trim();
+
   const config =
     provider === "whatsapp"
       ? {
-          access_token: String(formData.get("access_token") || "") || undefined,
+          access_token: newAccessToken || current?.access_token || undefined,
           phone_number_id: String(formData.get("phone_number_id") || "") || undefined,
           business_account_id: String(formData.get("business_account_id") || "") || undefined,
           api_version: String(formData.get("api_version") || "v21.0"),
         }
       : {
-          api_key: String(formData.get("api_key") || "") || undefined,
+          api_key: newApiKey || current?.api_key || undefined,
           from_email: String(formData.get("from_email") || "") || undefined,
           domain: String(formData.get("domain") || "") || undefined,
         };
@@ -360,11 +371,28 @@ export default async function ConfigPage() {
                 >
                   <F name="phone_number_id" label="Phone Number ID" defaultValue={wa.phone_number_id ?? ""} />
                   <F name="business_account_id" label="Business Account ID" defaultValue={wa.business_account_id ?? ""} />
-                  <F name="access_token" label="Access Token (permanente)" type="password" defaultValue={wa.access_token ?? ""} />
+                  <div className="space-y-1.5">
+                    <Label htmlFor="access_token">Access Token (permanente)</Label>
+                    <Input
+                      id="access_token"
+                      name="access_token"
+                      type="password"
+                      autoComplete="off"
+                      placeholder={maskApiKey(wa.access_token) ?? "EAAG..."}
+                    />
+                    {wa.access_token && (
+                      <p className="text-[11px] text-muted-foreground">
+                        Atual: {maskApiKey(wa.access_token)}
+                      </p>
+                    )}
+                  </div>
                   <F name="api_version" label="Versão da API" defaultValue={wa.api_version ?? "v21.0"} />
-                  <Button size="sm" type="submit" disabled={!isAdmin(ctx.role)}>
-                    Salvar
-                  </Button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button size="sm" type="submit" disabled={!isAdmin(ctx.role)}>
+                      Salvar
+                    </Button>
+                    <IntegrationTestButton endpoint="/api/whatsapp/test" />
+                  </div>
                 </form>
                 <p className="mt-2 text-[11px] text-muted-foreground">
                   Webhook: <code>https://lumihunter.vercel.app/api/whatsapp/webhook</code>{" "}
@@ -385,12 +413,29 @@ export default async function ConfigPage() {
                   action={saveIntegration.bind(null, "resend")}
                   className="mt-3 space-y-3"
                 >
-                  <F name="api_key" label="API Key (re_...)" type="password" defaultValue={rs.api_key ?? ""} />
+                  <div className="space-y-1.5">
+                    <Label htmlFor="api_key">API Key</Label>
+                    <Input
+                      id="api_key"
+                      name="api_key"
+                      type="password"
+                      autoComplete="off"
+                      placeholder={maskApiKey(rs.api_key) ?? "re_..."}
+                    />
+                    {rs.api_key && (
+                      <p className="text-[11px] text-muted-foreground">
+                        Atual: {maskApiKey(rs.api_key)}
+                      </p>
+                    )}
+                  </div>
                   <F name="from_email" label="Remetente (from)" defaultValue={rs.from_email ?? ""} placeholder="contato@seudominio.com.br" />
                   <F name="domain" label="Domínio verificado" defaultValue={rs.domain ?? ""} />
-                  <Button size="sm" type="submit" disabled={!isAdmin(ctx.role)}>
-                    Salvar
-                  </Button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button size="sm" type="submit" disabled={!isAdmin(ctx.role)}>
+                      Salvar
+                    </Button>
+                    <IntegrationTestButton endpoint="/api/resend/test" />
+                  </div>
                 </form>
                 <p className="mt-2 text-[11px] text-muted-foreground">
                   Webhook: <code>https://lumihunter.vercel.app/api/resend/webhook</code>
@@ -568,6 +613,7 @@ export default async function ConfigPage() {
             <Button size="sm" type="submit" disabled={!admin}>
               Salvar
             </Button>
+            <IntegrationTestButton endpoint="/api/search/test" />
           </form>
         </CardContent>
       </Card>

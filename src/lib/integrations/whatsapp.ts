@@ -74,10 +74,11 @@ export function verifyWebhook(params: URLSearchParams): string | null {
   const mode = params.get("hub.mode");
   const token = params.get("hub.verify_token");
   const challenge = params.get("hub.challenge");
-  if (
-    mode === "subscribe" &&
-    token === (process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || "lumihunter-verify")
-  ) {
+  const expected =
+    process.env.WHATSAPP_VERIFY_TOKEN ||
+    process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN ||
+    "lumihunter-verify";
+  if (mode === "subscribe" && token === expected) {
     return challenge;
   }
   return null;
@@ -117,6 +118,41 @@ export function parseInbound(payload: unknown): InboundWhatsApp[] {
           timestamp: msg.timestamp,
           phoneNumberId,
         });
+      }
+    }
+  }
+  return out;
+}
+
+export type WhatsAppMessageStatus = "sent" | "delivered" | "read" | "failed";
+
+export interface InboundWhatsAppStatus {
+  waMessageId: string;
+  status: WhatsAppMessageStatus;
+  timestamp: string;
+}
+
+const STATUS_MAP: Record<string, WhatsAppMessageStatus> = {
+  sent: "sent",
+  delivered: "delivered",
+  read: "read",
+  failed: "failed",
+};
+
+/** Extrai atualizações de status (entregue/lido/falhou) do payload do webhook. */
+export function parseStatuses(payload: unknown): InboundWhatsAppStatus[] {
+  const out: InboundWhatsAppStatus[] = [];
+  const entries = (payload as { entry?: unknown[] })?.entry ?? [];
+  for (const entry of entries) {
+    const changes = (entry as { changes?: unknown[] })?.changes ?? [];
+    for (const change of changes) {
+      const value = (change as { value?: Record<string, unknown> })?.value ?? {};
+      const statuses = (value.statuses as unknown[]) ?? [];
+      for (const s of statuses) {
+        const st = s as { id: string; status: string; timestamp: string };
+        const mapped = STATUS_MAP[st.status];
+        if (!mapped) continue; // status desconhecido — ignora sem quebrar
+        out.push({ waMessageId: st.id, status: mapped, timestamp: st.timestamp });
       }
     }
   }
