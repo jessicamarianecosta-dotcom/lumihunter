@@ -2,19 +2,29 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { validateWebhookHandshake, parseIncomingWebhook } from "@/lib/whatsapp/service";
 
-// GET: handshake de verificação da Meta
+/**
+ * Webhook dedicado ao provider YCloud — endpoint separado do webhook da Meta
+ * (/api/whatsapp/webhook) porque cada BSP tem seu próprio formato de payload
+ * e é registrado como uma URL distinta no respectivo painel.
+ *
+ * ⚠️ Ainda não funcional de verdade: `ycloudProvider` (src/lib/whatsapp/providers/ycloud.ts)
+ * está aguardando confirmação da documentação oficial do YCloud (endpoint,
+ * autenticação e formato exato do payload). A rota já está pronta e cablada
+ * na arquitetura — assim que o provider for implementado, esta rota funciona
+ * sem mudanças adicionais.
+ */
+
 export async function GET(req: NextRequest) {
-  const challenge = validateWebhookHandshake("meta", req.nextUrl.searchParams);
+  const challenge = validateWebhookHandshake("ycloud", req.nextUrl.searchParams);
   if (challenge) return new Response(challenge, { status: 200 });
   return new Response("forbidden", { status: 403 });
 }
 
-// POST: mensagens recebidas / status
 export async function POST(req: NextRequest) {
   const payload = await req.json().catch(() => null);
   if (!payload) return NextResponse.json({ ok: true });
 
-  const { messages: inbound, statuses } = parseIncomingWebhook("meta", payload);
+  const { messages: inbound, statuses } = parseIncomingWebhook("ycloud", payload);
   if (inbound.length === 0 && statuses.length === 0)
     return NextResponse.json({ ok: true });
 
@@ -28,18 +38,19 @@ export async function POST(req: NextRequest) {
   }
 
   for (const msg of inbound) {
-    // localiza a integração pelo phone_number_id -> empresa
+    // TODO: quando o parseWebhook do YCloud estiver implementado, confirmar
+    // como identificar a empresa a partir do payload (ex: número conectado)
+    // — mesmo padrão usado no webhook da Meta, adaptado ao campo real do YCloud.
     const { data: integration } = await admin
       .from("integrations")
       .select("company_id")
       .eq("provider", "whatsapp")
-      .contains("config", { phone_number_id: msg.channelIdentifier })
+      .contains("config", { ycloud: { channel_identifier: msg.channelIdentifier } })
       .maybeSingle();
 
     const companyId = integration?.company_id;
     if (!companyId) continue;
 
-    // localiza o lead pelo telefone
     const phone = `+${msg.from.replace(/\D/g, "")}`;
     const { data: lead } = await admin
       .from("leads")
@@ -49,7 +60,6 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
     if (!lead) continue;
 
-    // conversa (upsert lógico)
     let { data: conversation } = await admin
       .from("conversations")
       .select("id")
@@ -66,7 +76,7 @@ export async function POST(req: NextRequest) {
           channel: "whatsapp",
           external_id: msg.from,
           status: "open",
-          provider: "meta",
+          provider: "ycloud",
         })
         .select("id")
         .single();
@@ -82,9 +92,9 @@ export async function POST(req: NextRequest) {
       direction: "inbound",
       status: "received",
       body: msg.text,
-      provider: "meta",
+      provider: "ycloud",
       provider_message_id: msg.providerMessageId,
-      sent_at: new Date(Number(msg.timestamp) * 1000).toISOString(),
+      sent_at: new Date(msg.timestamp).toISOString(),
     });
 
     await admin

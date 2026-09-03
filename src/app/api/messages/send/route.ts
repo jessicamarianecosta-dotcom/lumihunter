@@ -2,13 +2,9 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { tryGetContext, canWrite } from "@/lib/auth/context";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { sendWhatsAppText } from "@/lib/integrations/whatsapp";
+import { sendMessage as sendWhatsAppMessage } from "@/lib/whatsapp/service";
 import { sendEmail } from "@/lib/integrations/resend";
-import {
-  getIntegrationConfig,
-  type WhatsAppConfig,
-  type ResendConfig,
-} from "@/lib/integrations/config";
+import { getIntegrationConfig, type ResendConfig } from "@/lib/integrations/config";
 import { normalizePhoneBR } from "@/lib/utils";
 import { enforceRateLimit, LIMITS } from "@/lib/ratelimit";
 import { enforceMessageQuota } from "@/lib/limits";
@@ -89,25 +85,24 @@ export async function POST(req: Request) {
   if (!conversation)
     return NextResponse.json({ error: "falha ao abrir conversa" }, { status: 500 });
 
-  const integ = await getIntegrationConfig<WhatsAppConfig & ResendConfig>(
-    ctx.company.id,
-    channel === "whatsapp" ? "whatsapp" : "resend",
-  );
-  const result =
-    channel === "whatsapp"
-      ? await sendWhatsAppText({
-          to: target,
-          body,
-          accessToken: integ?.config.access_token,
-          phoneNumberId: integ?.config.phone_number_id,
-        })
-      : await sendEmail({
-          to: target,
-          subject: subject ?? `Contato de ${ctx.company.name}`,
-          html: body.replace(/\n/g, "<br>"),
-          apiKey: integ?.config.api_key,
-          from: integ?.config.from_email,
-        });
+  let result: {
+    ok: boolean;
+    simulated?: boolean;
+    error?: string;
+    providerMessageId?: string;
+  };
+  if (channel === "whatsapp") {
+    result = await sendWhatsAppMessage(ctx.company.id, { to: target, body });
+  } else {
+    const integ = await getIntegrationConfig<ResendConfig>(ctx.company.id, "resend");
+    result = await sendEmail({
+      to: target,
+      subject: subject ?? `Contato de ${ctx.company.name}`,
+      html: body.replace(/\n/g, "<br>"),
+      apiKey: integ?.config.api_key,
+      from: integ?.config.from_email,
+    });
+  }
 
   await admin.from("messages").insert({
     company_id: ctx.company.id,

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { sendWhatsAppText } from "@/lib/integrations/whatsapp";
+import { sendMessage as sendWhatsAppMessage } from "@/lib/whatsapp/service";
 import { normalizePhoneBR } from "@/lib/utils";
 
 /**
@@ -74,7 +74,7 @@ export async function GET(req: NextRequest) {
       .maybeSingle();
     const to = normalizePhoneBR(lead?.whatsapp ?? lead?.phone);
     if (to && stepDef.body) {
-      await sendWhatsAppText({ to, body: stepDef.body });
+      await sendWhatsAppMessage(t.company_id, { to, body: stepDef.body });
     }
 
     const nextStep = steps[t.step + 1];

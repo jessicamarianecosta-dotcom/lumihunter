@@ -6,6 +6,9 @@ export interface WhatsAppConfig {
   business_account_id?: string;
   api_version?: string;
   webhook_verify_token?: string;
+  /** Provider ativo entre os configurados abaixo — ver src/lib/whatsapp/service.ts */
+  active_provider?: "meta" | "ycloud";
+  ycloud?: { api_key?: string; webhook_secret?: string };
 }
 
 export interface ResendConfig {

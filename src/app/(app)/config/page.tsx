@@ -74,6 +74,7 @@ async function saveIntegration(provider: "whatsapp" | "resend", formData: FormDa
   const config =
     provider === "whatsapp"
       ? {
+          ...current, // preserva active_provider / ycloud (config de outro provider)
           access_token: newAccessToken || current?.access_token || undefined,
           phone_number_id: String(formData.get("phone_number_id") || "") || undefined,
           business_account_id: String(formData.get("business_account_id") || "") || undefined,
@@ -86,13 +87,61 @@ async function saveIntegration(provider: "whatsapp" | "resend", formData: FormDa
         };
 
   const hasSecret =
-    provider === "whatsapp" ? !!config.access_token : !!(config as { api_key?: string }).api_key;
+    provider === "whatsapp"
+      ? !!(config as { access_token?: string }).access_token
+      : !!(config as { api_key?: string }).api_key;
 
   await supabase.from("integrations").upsert(
     {
       company_id: ctx.company.id,
       provider,
       config,
+      is_connected: hasSecret,
+      connected_by: ctx.userId,
+      connected_at: hasSecret ? new Date().toISOString() : null,
+    },
+    { onConflict: "company_id,provider" },
+  );
+  revalidatePath("/config");
+}
+
+async function saveWhatsAppProvider(formData: FormData) {
+  "use server";
+  const ctx = await getAppContext();
+  if (!isAdmin(ctx.role)) throw new Error("sem permissão");
+  const supabase = await createClient();
+  const active = String(formData.get("whatsapp_provider") || "meta") === "ycloud" ? "ycloud" : "meta";
+  const current = (await getIntegrationConfig<WhatsAppConfig>(ctx.company.id, "whatsapp"))?.config;
+  await supabase.from("integrations").upsert(
+    {
+      company_id: ctx.company.id,
+      provider: "whatsapp",
+      config: { ...current, active_provider: active },
+      is_connected: !!(current?.access_token || current?.ycloud?.api_key),
+    },
+    { onConflict: "company_id,provider" },
+  );
+  revalidatePath("/config");
+}
+
+async function saveYCloudConfig(formData: FormData) {
+  "use server";
+  const ctx = await getAppContext();
+  if (!isAdmin(ctx.role)) throw new Error("sem permissão");
+  const supabase = await createClient();
+  const current = (await getIntegrationConfig<WhatsAppConfig>(ctx.company.id, "whatsapp"))?.config;
+  const newApiKey = String(formData.get("ycloud_api_key") || "").trim();
+  const newSecret = String(formData.get("ycloud_webhook_secret") || "").trim();
+  const ycloud = {
+    api_key: newApiKey || current?.ycloud?.api_key || undefined,
+    webhook_secret: newSecret || current?.ycloud?.webhook_secret || undefined,
+  };
+  const hasSecret = !!(current?.access_token || ycloud.api_key);
+  await supabase.from("integrations").upsert(
+    {
+      company_id: ctx.company.id,
+      provider: "whatsapp",
+      config: { ...current, ycloud },
       is_connected: hasSecret,
       connected_by: ctx.userId,
       connected_at: hasSecret ? new Date().toISOString() : null,
@@ -348,56 +397,135 @@ export default async function ConfigPage() {
 
       {(() => {
         const wa = (integrations?.find((i) => i.provider === "whatsapp")
-          ?.config ?? {}) as Record<string, string>;
+          ?.config ?? {}) as WhatsAppConfig;
         const rs = (integrations?.find((i) => i.provider === "resend")?.config ??
           {}) as Record<string, string>;
         const waOn = integrations?.find((i) => i.provider === "whatsapp")
           ?.is_connected;
         const rsOn = integrations?.find((i) => i.provider === "resend")
           ?.is_connected;
+        const whatsappProvider = wa.active_provider ?? "meta";
+        const ycloudKeyMasked = maskApiKey(wa.ycloud?.api_key);
+        const ycloudSecretMasked = maskApiKey(wa.ycloud?.webhook_secret);
         return (
           <div className="grid gap-6 lg:grid-cols-2">
-            <Card>
-              <CardContent className="p-5">
+            <Card className="lg:col-span-2">
+              <CardContent className="space-y-4 p-5">
                 <p className="flex items-center gap-2 text-sm font-medium">
-                  WhatsApp Cloud API
+                  WhatsApp
                   <Badge variant={waOn ? "success" : "secondary"}>
                     {waOn ? "conectado" : "não conectado"}
                   </Badge>
+                  <span className="font-normal text-muted-foreground">
+                    · provider ativo: {whatsappProvider === "ycloud" ? "YCloud" : "Meta Cloud API"}
+                  </span>
                 </p>
+
                 <form
-                  action={saveIntegration.bind(null, "whatsapp")}
-                  className="mt-3 space-y-3"
+                  action={saveWhatsAppProvider}
+                  className="flex flex-wrap items-end gap-3 border-b pb-4"
                 >
-                  <F name="phone_number_id" label="Phone Number ID" defaultValue={wa.phone_number_id ?? ""} />
-                  <F name="business_account_id" label="Business Account ID" defaultValue={wa.business_account_id ?? ""} />
                   <div className="space-y-1.5">
-                    <Label htmlFor="access_token">Access Token (permanente)</Label>
-                    <Input
-                      id="access_token"
-                      name="access_token"
-                      type="password"
-                      autoComplete="off"
-                      placeholder={maskApiKey(wa.access_token) ?? "EAAG..."}
-                    />
-                    {wa.access_token && (
-                      <p className="text-[11px] text-muted-foreground">
-                        Atual: {maskApiKey(wa.access_token)}
-                      </p>
-                    )}
+                    <Label htmlFor="whatsapp_provider">Provider ativo</Label>
+                    <select
+                      id="whatsapp_provider"
+                      name="whatsapp_provider"
+                      defaultValue={whatsappProvider}
+                      disabled={!isAdmin(ctx.role)}
+                      className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      <option value="ycloud">YCloud</option>
+                      <option value="meta">Meta Cloud API</option>
+                    </select>
                   </div>
-                  <F name="api_version" label="Versão da API" defaultValue={wa.api_version ?? "v21.0"} />
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button size="sm" type="submit" disabled={!isAdmin(ctx.role)}>
-                      Salvar
-                    </Button>
-                    <IntegrationTestButton endpoint="/api/whatsapp/test" />
-                  </div>
+                  <Button size="sm" type="submit" disabled={!isAdmin(ctx.role)}>
+                    Definir como ativo
+                  </Button>
+                  <IntegrationTestButton endpoint="/api/whatsapp/test" />
                 </form>
-                <p className="mt-2 text-[11px] text-muted-foreground">
-                  Webhook: <code>https://lumihunter.vercel.app/api/whatsapp/webhook</code>{" "}
-                  · Verify token: <code>lumihunter-verify</code>
-                </p>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground">
+                      YCloud (Coexistência)
+                    </p>
+                    <form action={saveYCloudConfig} className="mt-2 space-y-2">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="ycloud_api_key">API Key</Label>
+                        <Input
+                          id="ycloud_api_key"
+                          name="ycloud_api_key"
+                          type="password"
+                          autoComplete="off"
+                          placeholder={ycloudKeyMasked ?? "sk_..."}
+                        />
+                        {ycloudKeyMasked && (
+                          <p className="text-[11px] text-muted-foreground">
+                            Atual: {ycloudKeyMasked}
+                          </p>
+                        )}
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="ycloud_webhook_secret">Webhook Secret</Label>
+                        <Input
+                          id="ycloud_webhook_secret"
+                          name="ycloud_webhook_secret"
+                          type="password"
+                          autoComplete="off"
+                          placeholder={ycloudSecretMasked ?? "opcional"}
+                        />
+                        {ycloudSecretMasked && (
+                          <p className="text-[11px] text-muted-foreground">
+                            Atual: {ycloudSecretMasked}
+                          </p>
+                        )}
+                      </div>
+                      <Button size="sm" type="submit" disabled={!isAdmin(ctx.role)}>
+                        Salvar
+                      </Button>
+                    </form>
+                    <p className="mt-2 text-[11px] text-muted-foreground">
+                      Webhook: <code>https://lumihunter.vercel.app/api/webhooks/whatsapp/ycloud</code>
+                      <br />⚠️ integração ainda pendente de confirmação dos detalhes oficiais da API do YCloud.
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Meta Cloud API (oficial)
+                    </p>
+                    <form
+                      action={saveIntegration.bind(null, "whatsapp")}
+                      className="mt-2 space-y-2"
+                    >
+                      <F name="phone_number_id" label="Phone Number ID" defaultValue={wa.phone_number_id ?? ""} />
+                      <F name="business_account_id" label="Business Account ID" defaultValue={wa.business_account_id ?? ""} />
+                      <div className="space-y-1.5">
+                        <Label htmlFor="access_token">Access Token (permanente)</Label>
+                        <Input
+                          id="access_token"
+                          name="access_token"
+                          type="password"
+                          autoComplete="off"
+                          placeholder={maskApiKey(wa.access_token) ?? "EAAG..."}
+                        />
+                        {wa.access_token && (
+                          <p className="text-[11px] text-muted-foreground">
+                            Atual: {maskApiKey(wa.access_token)}
+                          </p>
+                        )}
+                      </div>
+                      <F name="api_version" label="Versão da API" defaultValue={wa.api_version ?? "v21.0"} />
+                      <Button size="sm" type="submit" disabled={!isAdmin(ctx.role)}>
+                        Salvar
+                      </Button>
+                    </form>
+                    <p className="mt-2 text-[11px] text-muted-foreground">
+                      Webhook: <code>https://lumihunter.vercel.app/api/whatsapp/webhook</code>{" "}
+                      · Verify token: <code>lumihunter-verify</code>
+                    </p>
+                  </div>
+                </div>
               </CardContent>
             </Card>
 
