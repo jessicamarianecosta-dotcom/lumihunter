@@ -1,7 +1,7 @@
-import { anthropic, MODELS, textOf, parseJsonFromText } from "../client";
+import { parseJsonFromText } from "../client";
 import { ICP_ASSISTANT_SYSTEM } from "../prompts";
-import { logAiRun } from "../log";
-import { isDemoMode } from "../demo";
+import { generateText, isAiDemoMode } from "@/lib/ai";
+import { logAiRun } from "@/lib/ai/log";
 import type { Company, Product } from "@/lib/supabase/database.types";
 
 export interface IcpSuggestion {
@@ -34,14 +34,14 @@ interface RunArgs {
 
 export async function runIcpAssistant(args: RunArgs): Promise<IcpSuggestion> {
   const started = Date.now();
-  const model = MODELS.analyst;
   const hasProducts = args.products.length > 0;
 
-  if (isDemoMode()) {
+  if (await isAiDemoMode(args.companyId)) {
     const s = demoIcp(args.company, hasProducts);
     await logAiRun({
       companyId: args.companyId,
       agentKind: "qualifier",
+      provider: "demo",
       model: "demo",
       input: { mode: "demo", assistant: "icp" },
       output: { segments: s.segments.length },
@@ -78,20 +78,25 @@ Proponha o Perfil de Cliente Ideal. JSON:
 
   let out: IcpSuggestion = demoIcp(args.company, hasProducts);
   let usage = null;
+  let provider: "anthropic" | "openai" = "anthropic";
+  let model = "unknown";
   try {
-    const msg = await anthropic().messages.create({
-      model,
-      max_tokens: 2500,
+    const res = await generateText({
+      companyId: args.companyId,
       system: ICP_ASSISTANT_SYSTEM,
-      messages: [{ role: "user", content: userPrompt }],
+      prompt: userPrompt,
+      maxTokens: 2500,
     });
-    usage = msg.usage;
-    out = parseJsonFromText<IcpSuggestion>(textOf(msg));
+    usage = res.usage;
+    provider = res.provider;
+    model = res.model;
+    out = parseJsonFromText<IcpSuggestion>(res.text);
     out.suggested_products ??= [];
   } finally {
     await logAiRun({
       companyId: args.companyId,
       agentKind: "qualifier",
+      provider,
       model,
       input: { assistant: "icp", company: args.company.name },
       output: { segments: out.segments?.length ?? 0 },

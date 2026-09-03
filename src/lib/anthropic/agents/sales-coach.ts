@@ -1,7 +1,7 @@
-import { anthropic, MODELS, textOf, parseJsonFromText } from "../client";
+import { parseJsonFromText } from "../client";
 import { SALES_COACH_SYSTEM } from "../prompts";
-import { logAiRun } from "../log";
-import { isDemoMode } from "../demo";
+import { generateText, isAiDemoMode } from "@/lib/ai";
+import { logAiRun } from "@/lib/ai/log";
 import type { Company, Lead } from "@/lib/supabase/database.types";
 
 export interface SalesCoachResult {
@@ -40,13 +40,13 @@ export const CLASSIFICATION_LABELS = LABELS;
 
 export async function runSalesCoach(args: RunArgs): Promise<SalesCoachResult> {
   const started = Date.now();
-  const model = MODELS.copywriter;
 
-  if (isDemoMode()) {
+  if (await isAiDemoMode(args.companyId)) {
     const r = demoCoach(args);
     await logAiRun({
       companyId: args.companyId,
       agentKind: "sales_coach",
+      provider: "demo",
       model: "demo",
       leadId: args.lead.id,
       input: { mode: "demo", msgs: args.messages.length },
@@ -89,19 +89,24 @@ JSON:
 
   let out = demoCoach(args);
   let usage = null;
+  let provider: "anthropic" | "openai" = "anthropic";
+  let model = "unknown";
   try {
-    const msg = await anthropic().messages.create({
-      model,
-      max_tokens: 1500,
+    const res = await generateText({
+      companyId: args.companyId,
       system: SALES_COACH_SYSTEM,
-      messages: [{ role: "user", content: userPrompt }],
+      prompt: userPrompt,
+      maxTokens: 1500,
     });
-    usage = msg.usage;
-    out = parseJsonFromText<SalesCoachResult>(textOf(msg));
+    usage = res.usage;
+    provider = res.provider;
+    model = res.model;
+    out = parseJsonFromText<SalesCoachResult>(res.text);
   } finally {
     await logAiRun({
       companyId: args.companyId,
       agentKind: "sales_coach",
+      provider,
       model,
       leadId: args.lead.id,
       input: { msgs: args.messages.length },
