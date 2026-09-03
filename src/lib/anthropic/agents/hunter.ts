@@ -3,6 +3,7 @@ import { HUNTER_SYSTEM } from "../prompts";
 import { generateText, isAiDemoMode } from "@/lib/ai";
 import { logAiRun } from "@/lib/ai/log";
 import { webSearch } from "@/lib/search";
+import { getIntegrationConfig, type SearchConfig } from "@/lib/integrations/config";
 import { demoHunter } from "../demo";
 import type { IcpProfile, Product } from "@/lib/supabase/database.types";
 
@@ -67,10 +68,19 @@ export async function runHunter(args: RunArgs): Promise<HunterLead[]> {
 
   const queries = buildQueries(args.icp, args.extraQuery);
 
+  const searchCfg = (
+    await getIntegrationConfig<SearchConfig>(args.companyId, "search")
+  )?.config;
+
   const searchResults = (
     await Promise.all(
       queries.map((q) =>
-        webSearch(q, { limit: 6, location: args.icp.cities[0] }).catch(() => []),
+        webSearch(q, {
+          limit: 6,
+          location: args.icp.cities[0],
+          provider: searchCfg?.provider,
+          apiKey: searchCfg?.api_key,
+        }).catch(() => []),
       ),
     )
   ).flat();

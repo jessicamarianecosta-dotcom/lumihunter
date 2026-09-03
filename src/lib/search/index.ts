@@ -11,25 +11,38 @@ export interface SearchResult {
   source?: string;
 }
 
-const PROVIDER = process.env.HUNTER_SEARCH_PROVIDER || "mock";
+const ENV_PROVIDER = process.env.HUNTER_SEARCH_PROVIDER || "mock";
 
 export async function webSearch(
   query: string,
-  opts: { limit?: number; location?: string } = {},
+  opts: {
+    limit?: number;
+    location?: string;
+    /** Sobrescreve o provedor configurado (ex: config da empresa no banco). */
+    provider?: string;
+    /** Sobrescreve a chave de API do provedor (ex: config da empresa no banco). */
+    apiKey?: string;
+  } = {},
 ): Promise<SearchResult[]> {
   const limit = opts.limit ?? 10;
-  switch (PROVIDER) {
+  const provider = opts.provider || ENV_PROVIDER;
+  switch (provider) {
     case "serper":
-      return serper(query, limit, opts.location);
+      return serper(query, limit, opts.location, opts.apiKey);
     case "tavily":
-      return tavily(query, limit);
+      return tavily(query, limit, opts.apiKey);
     default:
       return mock(query, limit);
   }
 }
 
-async function serper(query: string, limit: number, location?: string) {
-  const key = process.env.SERPER_API_KEY;
+async function serper(
+  query: string,
+  limit: number,
+  location?: string,
+  apiKeyOverride?: string,
+) {
+  const key = apiKeyOverride || process.env.SERPER_API_KEY;
   if (!key) throw new Error("SERPER_API_KEY ausente");
   const res = await fetch("https://google.serper.dev/search", {
     method: "POST",
@@ -54,8 +67,8 @@ async function serper(query: string, limit: number, location?: string) {
   }));
 }
 
-async function tavily(query: string, limit: number) {
-  const key = process.env.TAVILY_API_KEY;
+async function tavily(query: string, limit: number, apiKeyOverride?: string) {
+  const key = apiKeyOverride || process.env.TAVILY_API_KEY;
   if (!key) throw new Error("TAVILY_API_KEY ausente");
   const res = await fetch("https://api.tavily.com/search", {
     method: "POST",
