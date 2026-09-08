@@ -9,6 +9,7 @@ import {
   MapPin,
   ArrowLeft,
   Sparkles,
+  User,
 } from "lucide-react";
 import { getAppContext } from "@/lib/auth/context";
 import { createClient } from "@/lib/supabase/server";
@@ -48,6 +49,7 @@ export default async function LeadPage({
     { data: products },
     { data: tags },
     { data: tasks },
+    { data: primaryContact },
   ] = await Promise.all([
     supabase
       .from("pipeline_stages")
@@ -75,6 +77,14 @@ export default async function LeadPage({
       .select("id, title, status, due_at")
       .eq("lead_id", id)
       .order("created_at", { ascending: false }),
+    supabase
+      .from("lead_contacts")
+      .select("name, role")
+      .eq("lead_id", id)
+      .eq("company_id", ctx.company.id)
+      .order("is_primary", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
 
   const contacts = [
@@ -196,6 +206,15 @@ export default async function LeadPage({
           <Card>
             <CardContent className="p-4">
               <p className="text-sm font-medium">Contato</p>
+              {primaryContact?.name && (
+                <p className="mt-2 flex items-center gap-2 text-sm">
+                  <User className="size-4 text-muted-foreground" />
+                  <span className="truncate">
+                    {primaryContact.name}
+                    {primaryContact.role ? ` · ${primaryContact.role}` : ""}
+                  </span>
+                </p>
+              )}
               <ul className="mt-3 space-y-2 text-sm">
                 {contacts.map((c, i) => (
                   <li key={i} className="flex items-center gap-2">
@@ -229,6 +248,17 @@ export default async function LeadPage({
                 <p className="text-sm font-medium">Sobre a empresa</p>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {lead.description}
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
+          {lead.notes && (
+            <Card>
+              <CardContent className="p-4">
+                <p className="text-sm font-medium">Observações</p>
+                <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
+                  {lead.notes}
                 </p>
               </CardContent>
             </Card>

@@ -6,6 +6,7 @@ import { Kanban } from "./kanban";
 import { LeadsList } from "./leads-list";
 import { ViewToggle } from "./view-toggle";
 import { LeadsFilters } from "./leads-filters";
+import { AddLeadDialog } from "./add-lead-dialog";
 import { setLeadsViewPreference } from "@/app/(app)/leads/actions";
 import type { LeadsView, LeadsFilters as LeadsFiltersState } from "@/lib/leads/filters";
 import type { LeadRow } from "@/app/(app)/leads/page";
@@ -59,6 +60,7 @@ export function LeadsWorkspace({
             {totalCount} {totalCount === 1 ? "lead encontrado" : "leads encontrados"}
           </p>
         </div>
+        <AddLeadDialog />
       </div>
 
       <LeadsFilters filters={filters} stages={stages} options={options} />
