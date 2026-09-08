@@ -91,7 +91,7 @@ export async function CatalogSources({
           )}
           {canWrite && (
             <div className="mt-3">
-              <PdfImportDialog hasExisting={!!pdf} />
+              <PdfImportDialog hasExisting={!!pdf} companyId={companyId} />
             </div>
           )}
         </div>

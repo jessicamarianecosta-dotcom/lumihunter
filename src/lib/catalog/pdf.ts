@@ -20,17 +20,26 @@ import type { Json } from "@/lib/supabase/database.types";
 
 export type { NormalizedItem, NormalizedVariant } from "./extract";
 
-async function downloadPdfBase64(filePath: string): Promise<string> {
-  const admin = createAdminClient();
-  const { data, error } = await admin.storage.from("catalogs").download(filePath);
+/**
+ * Client do banco. As rotas passam o client autenticado do usuário
+ * (`ctx.supabase`, RLS por `company_id`) — assim a importação de PDF não
+ * depende do `SUPABASE_SERVICE_ROLE_KEY`. Sem argumento, cai no service-role.
+ */
+type Db = ReturnType<typeof createAdminClient>;
+function db(client?: Db): Db {
+  return client ?? createAdminClient();
+}
+
+async function downloadPdfBase64(client: Db, filePath: string): Promise<string> {
+  const { data, error } = await client.storage.from("catalogs").download(filePath);
   if (error || !data) throw new Error(`Falha ao ler o PDF do storage: ${error?.message}`);
   const buf = Buffer.from(await data.arrayBuffer());
   return buf.toString("base64");
 }
 
 /** Processa um job: extrai + valida os itens do PDF e move para `review` (ou `error`). */
-export async function processImportJob(jobId: string): Promise<void> {
-  const admin = createAdminClient();
+export async function processImportJob(jobId: string, client?: Db): Promise<void> {
+  const admin = db(client);
   const { data: job } = await admin
     .from("catalog_import_jobs")
     .select("*")
@@ -38,6 +47,11 @@ export async function processImportJob(jobId: string): Promise<void> {
     .single();
   if (!job) throw new Error("job não encontrado");
 
+  // Já finalizado (ou aplicado) → não reprocessa. Evita corrida entre o
+  // "melhor esforço" do upload e o gatilho do GET do job.
+  if (["review", "applied", "canceled"].includes(job.status)) return;
+
+  console.log(`[catalog/pdf] processando job ${jobId} (status ${job.status})`);
   await admin
     .from("catalog_import_jobs")
     .update({ status: "processing" })
@@ -49,7 +63,7 @@ export async function processImportJob(jobId: string): Promise<void> {
     let usedDemo = false;
 
     if (provider === "anthropic" && apiKey) {
-      const b64 = await downloadPdfBase64(job.file_path);
+      const b64 = await downloadPdfBase64(admin, job.file_path);
       const client = new Anthropic({ apiKey });
       const userContent = [
         {
@@ -81,7 +95,7 @@ export async function processImportJob(jobId: string): Promise<void> {
             error_message: `Extração inválida — ${parsed.error}. Nada foi importado.`,
           })
           .eq("id", jobId);
-        await logCatalogEvent(job.company_id, "pdf_error", { job: jobId, reason: parsed.error });
+        await logCatalogEvent(job.company_id, "pdf_error", { job: jobId, reason: parsed.error }, admin);
         return;
       }
       items = parsed.items;
@@ -106,13 +120,13 @@ export async function processImportJob(jobId: string): Promise<void> {
       items: items.length,
       review: reviewCount,
       demo: usedDemo,
-    });
+    }, admin);
   } catch (e) {
     await admin
       .from("catalog_import_jobs")
       .update({ status: "error", error_message: (e as Error).message })
       .eq("id", jobId);
-    await logCatalogEvent(job.company_id, "pdf_error", { job: jobId });
+    await logCatalogEvent(job.company_id, "pdf_error", { job: jobId }, admin);
     throw e;
   }
 }
@@ -127,13 +141,16 @@ function itemsOf(extracted: unknown): NormalizedItem[] {
  * Aplica os itens aprovados: cria products + grupos/opções NOMEADOS + variantes
  * com `source = 'pdf'`. Preserva a relação grupo→valor→preço.
  */
-export async function applyImportJob(args: {
-  jobId: string;
-  companyId: string;
-  approved: number[];
-  edits?: Record<number, Partial<NormalizedItem>>;
-}): Promise<{ created: number }> {
-  const admin = createAdminClient();
+export async function applyImportJob(
+  args: {
+    jobId: string;
+    companyId: string;
+    approved: number[];
+    edits?: Record<number, Partial<NormalizedItem>>;
+  },
+  client?: Db,
+): Promise<{ created: number }> {
+  const admin = db(client);
   const { data: job } = await admin
     .from("catalog_import_jobs")
     .select("*")
@@ -250,7 +267,7 @@ export async function applyImportJob(args: {
     })
     .eq("company_id", args.companyId)
     .eq("kind", "pdf");
-  await logCatalogEvent(args.companyId, "pdf_applied", { job: args.jobId, created });
+  await logCatalogEvent(args.companyId, "pdf_applied", { job: args.jobId, created }, admin);
 
   return { created };
 }

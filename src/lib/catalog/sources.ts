@@ -119,13 +119,11 @@ export async function logCatalogEvent(
   companyId: string,
   kind: string,
   payload: Json = {},
+  client?: ReturnType<typeof createAdminClient>,
 ): Promise<void> {
   try {
-    await createAdminClient().from("catalog_events").insert({
-      company_id: companyId,
-      kind,
-      payload,
-    });
+    const db = client ?? createAdminClient();
+    await db.from("catalog_events").insert({ company_id: companyId, kind, payload });
   } catch {
     /* observabilidade nunca bloqueia */
   }

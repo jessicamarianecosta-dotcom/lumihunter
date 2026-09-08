@@ -5,7 +5,25 @@ import { useRouter } from "next/navigation";
 import * as Dialog from "@radix-ui/react-dialog";
 import { FileUp, X, Loader2, Check, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
+
+const MAX_MB = 20;
+
+async function jsonPost(url: string, body: unknown) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  let data: Record<string, unknown> = {};
+  try {
+    data = await res.json();
+  } catch {
+    /* resposta não-JSON (ex.: 413/504 da plataforma) */
+  }
+  return { res, data };
+}
 
 interface Tier {
   min_qty: number;
@@ -68,7 +86,13 @@ function variantLine(v: NVariant): string {
   return `${spec} → ${price}${qty}`;
 }
 
-export function PdfImportDialog({ hasExisting }: { hasExisting: boolean }) {
+export function PdfImportDialog({
+  hasExisting,
+  companyId,
+}: {
+  hasExisting: boolean;
+  companyId: string;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -89,42 +113,92 @@ export function PdfImportDialog({ hasExisting }: { hasExisting: boolean }) {
     if (inputRef.current) inputRef.current.value = "";
   }
 
+  function showReview(j: Job) {
+    setJob(j);
+    const list = Array.isArray(j.extracted_items)
+      ? j.extracted_items
+      : (j.extracted_items?.items ?? []);
+    const demo = !Array.isArray(j.extracted_items) && !!j.extracted_items?.demo;
+    setItems(list);
+    setIsDemo(demo);
+    setApproved(
+      new Set(list.map((it, i) => (it.needsReview ? -1 : i)).filter((i) => i >= 0)),
+    );
+    setPhase("review");
+    setMsg(null);
+  }
+
   async function onFile(file: File) {
+    // validação no cliente (o servidor revalida)
+    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+      setPhase("error");
+      setMsg("Selecione um arquivo PDF.");
+      return;
+    }
+    if (file.size > MAX_MB * 1024 * 1024) {
+      setPhase("error");
+      setMsg(`O PDF tem ${(file.size / 1024 / 1024).toFixed(1)} MB — o limite é ${MAX_MB} MB.`);
+      return;
+    }
+
     setPhase("uploading");
-    setMsg("Enviando e processando o PDF… pode levar alguns segundos.");
-    const fd = new FormData();
-    fd.append("file", file);
+    setMsg("Enviando o PDF…");
+
     try {
-      const res = await fetch("/api/catalog/pdf/upload", { method: "POST", body: fd });
-      const data = await res.json();
-      if (!res.ok) {
+      // 1) upload direto ao Supabase Storage, com a sessão do usuário.
+      //    A RLS do bucket `catalogs` só deixa gravar em `<company_id>/…`.
+      const path = `${companyId}/${crypto.randomUUID()}.pdf`;
+      const supabase = createClient();
+      const { error: upErr } = await supabase.storage
+        .from("catalogs")
+        .upload(path, file, { contentType: "application/pdf", upsert: false });
+      if (upErr) {
         setPhase("error");
-        setMsg(data.error ?? "Falha no upload.");
+        setMsg(`Falha ao enviar o arquivo para o Storage: ${upErr.message}`);
         return;
       }
-      const jres = await fetch(`/api/catalog/pdf/jobs/${data.jobId}`);
-      const jdata = await jres.json();
-      const j: Job = jdata.job;
-      setJob(j);
+
+      // 2) registra o job (JSON pequeno — o binário nunca passa pela função)
+      setMsg("Processando o catálogo… isso pode levar até um minuto.");
+      const { res: upRes, data: up } = await jsonPost("/api/catalog/pdf/upload", {
+        path,
+        fileName: file.name,
+        size: file.size,
+      });
+      if (!upRes.ok || !up.jobId) {
+        setPhase("error");
+        setMsg((up.error as string) ?? "Falha ao registrar a importação.");
+        return;
+      }
+
+      // 4) poll — o 1º GET dispara o processamento (leitura do PDF pela IA)
+      const jobId = up.jobId as string;
+      const deadline = Date.now() + 120_000;
+      let j: Job | null = null;
+      while (Date.now() < deadline) {
+        const r = await fetch(`/api/catalog/pdf/jobs/${jobId}`);
+        const d = await r.json().catch(() => ({}));
+        j = (d.job as Job) ?? null;
+        if (j && (j.status === "review" || j.status === "error" || j.status === "applied")) break;
+        await new Promise((res) => setTimeout(res, 2500));
+      }
+
+      if (!j) {
+        setPhase("error");
+        setMsg("O processamento demorou mais que o esperado. Abra a página novamente em instantes.");
+        return;
+      }
       if (j.status === "error") {
         setPhase("error");
         setMsg(j.error_message ?? "Falha ao processar o PDF.");
         return;
       }
-      const list = Array.isArray(j.extracted_items)
-        ? j.extracted_items
-        : (j.extracted_items?.items ?? []);
-      const demo = !Array.isArray(j.extracted_items) && !!j.extracted_items?.demo;
-      setItems(list);
-      setIsDemo(demo);
-      setApproved(
-        new Set(list.map((it, i) => (it.needsReview ? -1 : i)).filter((i) => i >= 0)),
-      );
-      setPhase("review");
-      setMsg(null);
-    } catch {
+      showReview(j);
+    } catch (e) {
       setPhase("error");
-      setMsg("Erro de rede ao enviar o PDF.");
+      setMsg(
+        `Erro ao enviar o PDF: ${e instanceof Error ? e.message : "falha de rede"}.`,
+      );
     }
   }
 
