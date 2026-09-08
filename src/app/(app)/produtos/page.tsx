@@ -5,8 +5,16 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { CsvImportButton, CsvExportButton } from "@/components/shared/csv-tools";
 import { AddProductButton } from "@/components/produtos/add-product-button";
+import { CatalogSources } from "@/components/produtos/catalog-sources";
+import { canWrite } from "@/lib/auth/context";
 import { formatCurrencyBRL } from "@/lib/utils";
 import type { Product } from "@/lib/supabase/database.types";
+
+const SOURCE_LABEL: Record<string, string> = {
+  manual: "Manual",
+  pdf: "PDF",
+  precy_online: "Precy+",
+};
 
 export const metadata: Metadata = { title: "Produtos" };
 
@@ -41,6 +49,8 @@ export default async function ProductsPage() {
         <CsvExportButton href="/api/products/export" />
       </div>
 
+      <CatalogSources companyId={ctx.company.id} canWrite={canWrite(ctx.role)} />
+
       <div className="space-y-3">
         <h2 className="text-sm font-medium text-muted-foreground">
           Produtos cadastrados
@@ -54,7 +64,13 @@ export default async function ProductsPage() {
                     {p.name}{" "}
                     <Badge variant={p.is_active ? "success" : "secondary"}>
                       {p.is_active ? "ativo" : "inativo"}
-                    </Badge>
+                    </Badge>{" "}
+                    {p.source && p.source !== "manual" && (
+                      <Badge variant="outline">{SOURCE_LABEL[p.source] ?? p.source}</Badge>
+                    )}
+                    {p.needs_review && (
+                      <Badge variant="outline">⚠ revisar</Badge>
+                    )}
                   </p>
                   <p className="mt-1 text-sm text-muted-foreground">
                     {p.description ?? "—"}

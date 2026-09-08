@@ -26,6 +26,7 @@ export type MessageDirection = Enums<"message_direction">;
 export type MessageStatus = Enums<"message_status">;
 export type CampaignStatus = Enums<"campaign_status">;
 export type AiAgentKind = Enums<"ai_agent_kind">;
+export type CatalogSourceKind = Enums<"catalog_source_kind">;
 
 // ── Aliases de linha ─────────────────────────────────────────────────────
 export type Company = Tables<"companies">;
@@ -45,3 +46,14 @@ export type AiRun = Tables<"ai_runs">;
 export type KnowledgeEntry = Tables<"knowledge_entries">;
 export type MessageTemplate = Tables<"message_templates">;
 export type Invitation = Tables<"invitations">;
+
+// ── Base Comercial ───────────────────────────────────────────────────────
+export type CatalogSource = Tables<"catalog_sources">;
+export type ProductVariationGroup = Tables<"product_variation_groups">;
+export type ProductVariationGroupRow = ProductVariationGroup;
+export type ProductVariationOption = Tables<"product_variation_options">;
+export type ProductVariationOptionRow = ProductVariationOption;
+export type ProductVariant = Tables<"product_variants">;
+export type ProductVariantRow = ProductVariant;
+export type CatalogImportJob = Tables<"catalog_import_jobs">;
+export type CatalogEvent = Tables<"catalog_events">;

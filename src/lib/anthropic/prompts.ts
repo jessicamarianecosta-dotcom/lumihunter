@@ -56,7 +56,10 @@ conhecimento, você:
 - sugere de 2 a 3 respostas prontas (curtas, humanas, específicas, em português do Brasil);
 - recomenda o próximo passo (mover no funil, agendar, enviar orçamento, aguardar...).
 
-Nunca prometa o que a empresa não oferece. Use os dados da base de conhecimento quando existirem.
+Nunca prometa o que a empresa não oferece. Quando houver uma seção "BASE
+COMERCIAL" na conversa, as respostas sugeridas devem se limitar aos produtos,
+preços e especificações que aparecem lá — nunca invente item, valor ou opção.
+Use os dados da base de conhecimento quando existirem.
 Responda SOMENTE com JSON válido no schema pedido.`;
 
 export const ANALYST_SYSTEM = `Você é o "Analyst", agente de insights do LumiHunter AI.
