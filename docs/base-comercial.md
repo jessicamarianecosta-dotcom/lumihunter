@@ -1,7 +1,7 @@
 # Base Comercial — Produtos & Serviços consultável pelos agentes
 
-> Status: **Etapa 2** (interface de Fontes do Catálogo + importação de PDF).
-> As migrations ainda **não foram aplicadas** — ver "Aplicar" no fim.
+> Status: **Etapas 3 e 5** (extração de PDF estruturada + Base Comercial ligada
+> ao Sales Coach). As migrations ainda **não foram aplicadas** — ver "Aplicar".
 > Análise técnica do Precy+: `docs/precy-integracao.md`.
 
 ## Objetivo
@@ -89,6 +89,50 @@ Se a migration não estiver aplicada, a seção mostra um aviso em vez de quebra
 
 Rotas: `POST /api/catalog/pdf/upload`, `GET|POST /api/catalog/pdf/jobs/[id]`,
 `POST /api/catalog/precy/{test,sync}`.
+
+## Extração de PDF estruturada (Etapa 3) — `src/lib/catalog/extract.ts`
+
+- Schema **zod** (`ExtractionSchema`) para a saída do modelo. Saída fora do
+  schema → job vai para `error`, **nada é importado**.
+- Prompt exige: `attributes` do produto (chaves naturais do ramo — não força
+  "gramatura" onde é "peso"), `variationGroups` nomeados (ex.: "Gramatura",
+  "Impressão"), `variants` com `options` grupo→valor **e** preço, e tabela de
+  quantidade do mesmo item como `priceKind:"per_quantity"` + `priceTiers`
+  (não vira N produtos).
+- `normalizeItem` força `needsReview` mesmo com JSON válido quando: variante sem
+  preço e não-`quote`; grupo declarado sem variante associada; produto sem
+  variação. Nunca inventa a relação.
+- `applyImportJob` cria **grupos/opções nomeados** (não mais um único "Opções")
+  preservando grupo→valor→preço; grava `price_tiers` em `product_variants`.
+- Sem chave de IA: `demoExtraction()` — sintética, marcada como tal na UI de
+  revisão ("não represente como catálogo real").
+- Tela de revisão mostra atributos, grupos de variação, cada variante com preço
+  (fixo ou tiers) e quantidade mínima; itens `review` desmarcados por padrão.
+
+## Base Comercial ↔ agentes (Etapa 5)
+
+**Agente ligado: Sales Coach** (`src/lib/anthropic/agents/sales-coach.ts`) — é o
+único agente conversacional/atendimento. Hunter/Qualifier/Copywriter são de
+prospecção e ficam fora deste escopo.
+
+Fluxo: última mensagem do lead → se parece pergunta comercial
+(`COMMERCIAL_HINT`) → `buildCommercialContext({companyId, message})`:
+`deriveCommercialQuery` (puro) extrai termo + especificações → `searchCatalog`
+(filtra `company_id`) → `renderCommercialContext(outcome)` (puro, compacto, só os
+≤4 produtos relevantes, não despeja o catálogo).
+
+- O bloco "BASE COMERCIAL" entra no `userPrompt` e o `ANTI_INVENTION_RULE` entra
+  no `system` **só quando há contexto comercial**.
+- `SearchOutcome.kind` guia o tom: FOUND / PARTIAL (pergunta só o que falta) /
+  AMBIGUOUS (mostra opções, não escolhe) / NOT_FOUND ("vou verificar") /
+  SOURCE_UNAVAILABLE ("encaminhar para atendimento"). O `kind` volta em
+  `SalesCoachResult.catalog_outcome`.
+- Modo demo respeita a mesma regra (sugestões condicionadas ao `outcome`).
+- Base indisponível (migration não aplicada) → o agente segue **sem** a seção,
+  como antes.
+
+Prioridade de fontes (precy > pdf > manual), conflito de preço e merge sem
+apagar complementares: `src/lib/catalog/resolve.ts` (puro, testado).
 
 ## Aplicar (quando aprovado)
 

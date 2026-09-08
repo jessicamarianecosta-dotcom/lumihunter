@@ -7,33 +7,66 @@ import { FileUp, X, Loader2, Check, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-interface ExtractedVariant {
-  optionLabels: string[];
-  price: number | null;
-  priceKind: string;
-  minQuantity: number | null;
+interface Tier {
+  min_qty: number;
+  price: number;
 }
-interface ExtractedItem {
+interface NVariant {
+  optionLabels: string[];
+  optionsByGroup: Record<string, string>;
+  attributes: Record<string, unknown>;
+  priceKind: string;
+  price: number | null;
+  priceTiers: { minQty: number; price: number }[] | null;
+  minQuantity: number | null;
+  unit: string | null;
+  leadTimeDays: number | null;
+}
+interface NItem {
   name: string;
   category: string | null;
   kind: string;
   description: string | null;
   attributes: Record<string, unknown>;
-  variants: ExtractedVariant[];
+  variationGroups: { name: string; values: string[] }[];
+  variants: NVariant[];
   confidence: "ok" | "review";
+  needsReview: boolean;
   notes: string | null;
 }
 interface Job {
   id: string;
   status: string;
   file_name: string | null;
-  extracted_items: ExtractedItem[];
+  extracted_items: { items: NItem[]; demo?: boolean } | NItem[];
   extracted_count: number;
   review_count: number;
   error_message: string | null;
 }
 
 type Phase = "idle" | "uploading" | "review" | "applying" | "done" | "error";
+
+function money(n: number) {
+  return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function variantLine(v: NVariant): string {
+  const spec =
+    v.optionLabels.join(" · ") ||
+    Object.entries(v.attributes)
+      .filter(([, x]) => x != null && x !== "")
+      .map(([k, x]) => `${k}: ${x}`)
+      .join(" · ") ||
+    "padrão";
+  let price: string;
+  if (v.priceKind === "quote") price = "sob orçamento";
+  else if (v.priceTiers?.length)
+    price = v.priceTiers.map((t) => `${t.minQty}un ${money(t.price)}`).join(" / ");
+  else if (v.price != null) price = money(v.price);
+  else price = "sem preço";
+  const qty = v.minQuantity ? ` · mín. ${v.minQuantity}${v.unit ?? ""}` : "";
+  return `${spec} → ${price}${qty}`;
+}
 
 export function PdfImportDialog({ hasExisting }: { hasExisting: boolean }) {
   const router = useRouter();
@@ -42,19 +75,23 @@ export function PdfImportDialog({ hasExisting }: { hasExisting: boolean }) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [msg, setMsg] = useState<string | null>(null);
   const [job, setJob] = useState<Job | null>(null);
+  const [items, setItems] = useState<NItem[]>([]);
+  const [isDemo, setIsDemo] = useState(false);
   const [approved, setApproved] = useState<Set<number>>(new Set());
 
   function reset() {
     setPhase("idle");
     setMsg(null);
     setJob(null);
+    setItems([]);
+    setIsDemo(false);
     setApproved(new Set());
     if (inputRef.current) inputRef.current.value = "";
   }
 
   async function onFile(file: File) {
     setPhase("uploading");
-    setMsg("Enviando e processando o PDF… isso pode levar alguns segundos.");
+    setMsg("Enviando e processando o PDF… pode levar alguns segundos.");
     const fd = new FormData();
     fd.append("file", file);
     try {
@@ -74,12 +111,14 @@ export function PdfImportDialog({ hasExisting }: { hasExisting: boolean }) {
         setMsg(j.error_message ?? "Falha ao processar o PDF.");
         return;
       }
+      const list = Array.isArray(j.extracted_items)
+        ? j.extracted_items
+        : (j.extracted_items?.items ?? []);
+      const demo = !Array.isArray(j.extracted_items) && !!j.extracted_items?.demo;
+      setItems(list);
+      setIsDemo(demo);
       setApproved(
-        new Set(
-          (j.extracted_items ?? [])
-            .map((it, i) => (it.confidence === "ok" ? i : -1))
-            .filter((i) => i >= 0),
-        ),
+        new Set(list.map((it, i) => (it.needsReview ? -1 : i)).filter((i) => i >= 0)),
       );
       setPhase("review");
       setMsg(null);
@@ -113,7 +152,7 @@ export function PdfImportDialog({ hasExisting }: { hasExisting: boolean }) {
     }
   }
 
-  const items = job?.extracted_items ?? [];
+  const reviewCount = items.filter((i) => i.needsReview).length;
 
   return (
     <Dialog.Root
@@ -135,7 +174,7 @@ export function PdfImportDialog({ hasExisting }: { hasExisting: boolean }) {
           className={cn(
             "fixed z-50 flex max-h-[92vh] flex-col overflow-hidden bg-card shadow-2xl outline-none",
             "inset-x-0 bottom-0 rounded-t-2xl",
-            "sm:inset-auto sm:left-1/2 sm:top-1/2 sm:w-[42rem] sm:max-w-[95vw] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border",
+            "sm:inset-auto sm:left-1/2 sm:top-1/2 sm:w-[44rem] sm:max-w-[95vw] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border",
           )}
         >
           <div className="flex shrink-0 items-center justify-between border-b px-4 py-3">
@@ -156,9 +195,9 @@ export function PdfImportDialog({ hasExisting }: { hasExisting: boolean }) {
             {(phase === "idle" || phase === "uploading" || phase === "error") && (
               <div className="space-y-3">
                 <p className="text-sm text-muted-foreground">
-                  O sistema lê o PDF e tenta transformar o conteúdo em produtos,
-                  variações e preços estruturados. Itens ambíguos ficam marcados
-                  para você revisar antes de entrarem no catálogo.
+                  O sistema lê o PDF e transforma o conteúdo em produtos, atributos,
+                  variações e preços estruturados. O que não puder ser determinado
+                  com segurança fica marcado para revisão — nada é inventado.
                 </p>
                 <input
                   ref={inputRef}
@@ -186,9 +225,7 @@ export function PdfImportDialog({ hasExisting }: { hasExisting: boolean }) {
                   <p
                     className={cn(
                       "text-xs",
-                      phase === "error"
-                        ? "text-destructive"
-                        : "text-muted-foreground",
+                      phase === "error" ? "text-destructive" : "text-muted-foreground",
                     )}
                   >
                     {msg}
@@ -199,16 +236,21 @@ export function PdfImportDialog({ hasExisting }: { hasExisting: boolean }) {
 
             {(phase === "review" || phase === "applying") && (
               <div className="space-y-3">
+                {isDemo && (
+                  <div className="rounded border border-amber-500/40 bg-amber-500/10 p-2 text-[11px] text-amber-700 dark:text-amber-400">
+                    Sem chave de IA configurada — esta é uma <strong>extração de
+                    exemplo</strong> (dados sintéticos), só para você ver o fluxo de
+                    revisão. Não represente isto como catálogo real da empresa.
+                  </div>
+                )}
                 <div className="flex flex-wrap items-center gap-2 text-xs">
-                  <span className="font-medium">
-                    {items.length} item(ns) extraído(s)
-                  </span>
-                  {job?.review_count ? (
+                  <span className="font-medium">{items.length} item(ns) extraído(s)</span>
+                  {reviewCount > 0 && (
                     <span className="inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-700 dark:text-amber-400">
                       <AlertTriangle className="size-3" />
-                      {job.review_count} para revisar
+                      {reviewCount} para revisar
                     </span>
-                  ) : null}
+                  )}
                   <span className="text-muted-foreground">
                     {approved.size} selecionado(s) para importar
                   </span>
@@ -232,32 +274,42 @@ export function PdfImportDialog({ hasExisting }: { hasExisting: boolean }) {
                         }}
                       />
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <span className="font-medium">{it.name}</span>
-                          {it.confidence === "review" ? (
+                          {it.category && (
+                            <span className="text-xs text-muted-foreground">
+                              {it.category}
+                            </span>
+                          )}
+                          {it.needsReview ? (
                             <span className="rounded bg-amber-500/15 px-1 text-[10px] text-amber-700 dark:text-amber-400">
-                              revisar
+                              ⚠ revisar
                             </span>
                           ) : (
-                            <Check className="size-3 text-emerald-600" />
+                            <span className="inline-flex items-center gap-0.5 text-[10px] text-emerald-600">
+                              <Check className="size-3" /> pronto
+                            </span>
                           )}
                         </div>
-                        <p className="text-xs text-muted-foreground">
-                          {[it.category, it.kind === "service" ? "serviço" : "produto"]
-                            .filter(Boolean)
-                            .join(" · ")}
-                        </p>
+                        {Object.keys(it.attributes).length > 0 && (
+                          <p className="text-xs text-muted-foreground">
+                            {Object.entries(it.attributes)
+                              .filter(([, x]) => x != null && x !== "")
+                              .map(([k, x]) => `${k}: ${x}`)
+                              .join(" · ")}
+                          </p>
+                        )}
+                        {it.variationGroups.length > 0 && (
+                          <p className="text-[11px] text-muted-foreground">
+                            Variações:{" "}
+                            {it.variationGroups
+                              .map((g) => `${g.name} (${g.values.join("/")})`)
+                              .join("  •  ")}
+                          </p>
+                        )}
                         {it.variants.map((v, vi) => (
                           <p key={vi} className="text-xs text-muted-foreground">
-                            {(v.optionLabels.join(" · ") || "padrão")} →{" "}
-                            {v.priceKind === "quote"
-                              ? "sob orçamento"
-                              : v.price != null
-                                ? v.price.toLocaleString("pt-BR", {
-                                    style: "currency",
-                                    currency: "BRL",
-                                  })
-                                : "sem preço"}
+                            – {variantLine(v)}
                           </p>
                         ))}
                         {it.notes && (
@@ -269,6 +321,10 @@ export function PdfImportDialog({ hasExisting }: { hasExisting: boolean }) {
                     </label>
                   ))}
                 </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Ajustes finos de atributos e variações podem ser feitos depois na
+                  página de Produtos.
+                </p>
                 {msg && <p className="text-xs text-muted-foreground">{msg}</p>}
               </div>
             )}
@@ -300,9 +356,7 @@ export function PdfImportDialog({ hasExisting }: { hasExisting: boolean }) {
               </>
             ) : (
               <Dialog.Close asChild>
-                <Button variant={phase === "done" ? "default" : "ghost"}>
-                  Fechar
-                </Button>
+                <Button variant={phase === "done" ? "default" : "ghost"}>Fechar</Button>
               </Dialog.Close>
             )}
           </div>
@@ -311,3 +365,5 @@ export function PdfImportDialog({ hasExisting }: { hasExisting: boolean }) {
     </Dialog.Root>
   );
 }
+
+export type { Tier };
