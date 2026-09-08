@@ -8,6 +8,7 @@
 import {
   sendWhatsAppText,
   verifyWebhook,
+  verifyMetaWebhookSignature,
   parseInbound,
   parseStatuses,
 } from "@/lib/integrations/whatsapp";
@@ -15,6 +16,7 @@ import type {
   ParsedWebhook,
   SendMessageResult,
   SendTextMessageArgs,
+  WebhookSignatureResult,
   WhatsAppProvider,
   WhatsAppProviderConfig,
 } from "../types";
@@ -36,6 +38,13 @@ export const metaCloudApiProvider: WhatsAppProvider = {
 
   validateWebhook(_config: WhatsAppProviderConfig, params: URLSearchParams): string | null {
     return verifyWebhook(params);
+  },
+
+  verifyWebhookSignature(rawBody: string, headers: Headers): WebhookSignatureResult {
+    return verifyMetaWebhookSignature(
+      rawBody,
+      headers.get("x-hub-signature-256"),
+    );
   },
 
   parseWebhook(_config: WhatsAppProviderConfig, payload: unknown): ParsedWebhook {

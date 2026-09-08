@@ -3,6 +3,7 @@
  * Habilite com WHATSAPP_ENABLED=true e preencha as credenciais no .env
  * (ou em integrations.config por empresa, em produção).
  */
+import { createHmac, timingSafeEqual } from "node:crypto";
 
 const API_VERSION = process.env.WHATSAPP_API_VERSION || "v21.0";
 const ENABLED = process.env.WHATSAPP_ENABLED === "true";
@@ -67,6 +68,49 @@ export async function sendWhatsAppText(
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }
+}
+
+export type WebhookSignatureResult = "valid" | "invalid" | "unconfigured";
+
+/**
+ * Valida a assinatura `X-Hub-Signature-256` dos webhooks da Meta.
+ *
+ * A Meta assina o corpo BRUTO da requisição com HMAC-SHA256 usando o
+ * App Secret do app (WHATSAPP_APP_SECRET) e envia o resultado no header
+ * `X-Hub-Signature-256: sha256=<hex>`.
+ *
+ * Retorna:
+ *  - "unconfigured" → WHATSAPP_APP_SECRET não está no ambiente do servidor
+ *                     (não dá para validar — o caller deve recusar a requisição);
+ *  - "invalid"      → header ausente/malformado, ou a assinatura não confere;
+ *  - "valid"        → assinatura confere.
+ *
+ * A comparação é feita com `crypto.timingSafeEqual` (resistente a timing attack).
+ * O App Secret só é lido de `process.env` no servidor — nunca chega ao cliente.
+ */
+export function verifyMetaWebhookSignature(
+  rawBody: string,
+  signatureHeader: string | null | undefined,
+): WebhookSignatureResult {
+  const appSecret = process.env.WHATSAPP_APP_SECRET;
+  if (!appSecret) return "unconfigured";
+
+  if (!signatureHeader || !signatureHeader.startsWith("sha256=")) {
+    return "invalid";
+  }
+  const provided = signatureHeader.slice("sha256=".length).trim();
+  if (!/^[0-9a-f]+$/i.test(provided) || provided.length % 2 !== 0) {
+    return "invalid";
+  }
+
+  const expected = createHmac("sha256", appSecret)
+    .update(rawBody, "utf8")
+    .digest("hex");
+
+  const a = Buffer.from(provided, "hex");
+  const b = Buffer.from(expected, "hex");
+  if (a.length !== b.length) return "invalid";
+  return timingSafeEqual(a, b) ? "valid" : "invalid";
 }
 
 /** Valida o handshake GET do webhook da Meta. */

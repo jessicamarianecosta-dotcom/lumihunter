@@ -24,6 +24,7 @@ import type {
   ParsedWebhook,
   SendMessageResult,
   SendTextMessageArgs,
+  WebhookSignatureResult,
   WhatsAppProvider,
   WhatsAppProviderConfig,
 } from "../types";
@@ -45,6 +46,16 @@ export const ycloudProvider: WhatsAppProvider = {
 
   validateWebhook(_config: WhatsAppProviderConfig, _params: URLSearchParams): string | null {
     return null;
+  },
+
+  verifyWebhookSignature(
+    _rawBody: string,
+    _headers: Headers,
+  ): WebhookSignatureResult {
+    // O esquema de assinatura de webhook do YCloud precisa ser confirmado na
+    // documentação oficial (ver comentário no topo). Até lá, "unconfigured"
+    // para que a rota recuse a chamada em vez de processá-la sem validar.
+    return "unconfigured";
   },
 
   parseWebhook(_config: WhatsAppProviderConfig, _payload: unknown): ParsedWebhook {

@@ -1,8 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { validateWebhookHandshake, parseIncomingWebhook } from "@/lib/whatsapp/service";
+import {
+  validateWebhookHandshake,
+  parseIncomingWebhook,
+  verifyIncomingWebhookSignature,
+} from "@/lib/whatsapp/service";
 
-// GET: handshake de verificação da Meta
+// GET: handshake de verificação da Meta (sem corpo, sem assinatura)
 export async function GET(req: NextRequest) {
   const challenge = validateWebhookHandshake("meta", req.nextUrl.searchParams);
   if (challenge) return new Response(challenge, { status: 200 });
@@ -11,7 +15,31 @@ export async function GET(req: NextRequest) {
 
 // POST: mensagens recebidas / status
 export async function POST(req: NextRequest) {
-  const payload = await req.json().catch(() => null);
+  // Corpo BRUTO — necessário para conferir a assinatura byte a byte.
+  const rawBody = await req.text();
+
+  // 1) Assinatura X-Hub-Signature-256 ANTES de qualquer parsing/processamento.
+  const signature = verifyIncomingWebhookSignature("meta", rawBody, req.headers);
+  if (signature === "unconfigured") {
+    console.error(
+      "[whatsapp/webhook] WHATSAPP_APP_SECRET ausente — não é possível validar a assinatura; requisição recusada.",
+    );
+    return NextResponse.json(
+      { error: "webhook signature verification not configured" },
+      { status: 503 },
+    );
+  }
+  if (signature !== "valid") {
+    return NextResponse.json({ error: "invalid signature" }, { status: 401 });
+  }
+
+  // 2) Só depois de validada, faz o parse.
+  let payload: unknown = null;
+  try {
+    payload = JSON.parse(rawBody);
+  } catch {
+    payload = null;
+  }
   if (!payload) return NextResponse.json({ ok: true });
 
   const { messages: inbound, statuses } = parseIncomingWebhook("meta", payload);

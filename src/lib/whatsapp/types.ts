@@ -51,6 +51,15 @@ export interface ParsedWebhook {
   statuses: InboundStatus[];
 }
 
+/**
+ * Resultado da verificação de assinatura de um webhook:
+ *  - "valid"        → assinatura confere, pode processar;
+ *  - "invalid"      → assinatura ausente ou incorreta, recusar (401);
+ *  - "unconfigured" → o segredo de verificação não está no ambiente do
+ *                     servidor, então não há como validar — recusar (503).
+ */
+export type WebhookSignatureResult = "valid" | "invalid" | "unconfigured";
+
 /** Config resolvida (chave/segredo do provedor ativo) — nunca serializada para o cliente. */
 export interface WhatsAppProviderConfig {
   [key: string]: string | undefined;
@@ -75,6 +84,16 @@ export interface WhatsAppProvider {
     config: WhatsAppProviderConfig,
     params: URLSearchParams,
   ): string | null;
+
+  /**
+   * Verifica a assinatura de uma chamada POST de webhook a partir do corpo
+   * bruto e dos headers da requisição. Deve ser chamada ANTES de qualquer
+   * parsing/processamento do payload.
+   */
+  verifyWebhookSignature(
+    rawBody: string,
+    headers: Headers,
+  ): WebhookSignatureResult;
 
   /** Normaliza o payload de webhook do provedor para o formato interno. */
   parseWebhook(config: WhatsAppProviderConfig, payload: unknown): ParsedWebhook;

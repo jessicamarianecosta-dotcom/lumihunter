@@ -5,6 +5,7 @@ import type {
   ParsedWebhook,
   SendMessageResult,
   SendTextMessageArgs,
+  WebhookSignatureResult,
   WhatsAppProvider,
   WhatsAppProviderConfig,
   WhatsAppProviderId,
@@ -119,6 +120,18 @@ export function parseIncomingWebhook(
   payload: unknown,
 ): ParsedWebhook {
   return PROVIDERS[providerId].parseWebhook({}, payload);
+}
+
+/**
+ * Verifica a assinatura de uma chamada POST de webhook. A rota deve chamar
+ * isto ANTES de fazer parse ou processar qualquer evento.
+ */
+export function verifyIncomingWebhookSignature(
+  providerId: WhatsAppProviderId,
+  rawBody: string,
+  headers: Headers,
+): WebhookSignatureResult {
+  return PROVIDERS[providerId].verifyWebhookSignature(rawBody, headers);
 }
 
 export type { WhatsAppProviderId } from "./types";
