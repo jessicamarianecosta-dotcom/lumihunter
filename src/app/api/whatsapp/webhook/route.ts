@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { phoneMatchCandidates } from "@/lib/utils";
 import {
   validateWebhookHandshake,
   parseIncomingWebhook,
@@ -11,6 +12,12 @@ export async function GET(req: NextRequest) {
   const challenge = validateWebhookHandshake("meta", req.nextUrl.searchParams);
   if (challenge) return new Response(challenge, { status: 200 });
   return new Response("forbidden", { status: 403 });
+}
+
+/** Mascara um telefone para os logs: nunca o número inteiro. */
+function maskPhone(raw: string): string {
+  const d = raw.replace(/\D/g, "");
+  return d.length <= 4 ? "••" : `••••${d.slice(-4)} (${d.length}d)`;
 }
 
 // POST: mensagens recebidas / status
@@ -43,20 +50,29 @@ export async function POST(req: NextRequest) {
   if (!payload) return NextResponse.json({ ok: true });
 
   const { messages: inbound, statuses } = parseIncomingWebhook("meta", payload);
+  console.log(
+    `[whatsapp/webhook] recebido: ${inbound.length} mensagem(ns), ${statuses.length} status`,
+  );
   if (inbound.length === 0 && statuses.length === 0)
     return NextResponse.json({ ok: true });
 
   const admin = createAdminClient();
 
+  // ── Atualizações de status (entregue/lido/falhou) ────────────────────────
   for (const s of statuses) {
-    await admin
+    const { error } = await admin
       .from("messages")
       .update({ status: s.status })
       .eq("provider_message_id", s.providerMessageId);
+    if (error)
+      console.error(
+        `[whatsapp/webhook] falha ao atualizar status ${s.status}: ${error.message}`,
+      );
   }
 
+  // ── Mensagens recebidas ─────────────────────────────────────────────────
   for (const msg of inbound) {
-    // localiza a integração pelo phone_number_id -> empresa
+    // empresa dona da linha que recebeu (pelo phone_number_id)
     const { data: integration } = await admin
       .from("integrations")
       .select("company_id")
@@ -65,19 +81,51 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
 
     const companyId = integration?.company_id;
-    if (!companyId) continue;
+    if (!companyId) {
+      console.warn(
+        `[whatsapp/webhook] nenhuma integração com phone_number_id=${msg.channelIdentifier}; mensagem de ${maskPhone(msg.from)} ignorada`,
+      );
+      continue;
+    }
 
-    // localiza o lead pelo telefone
-    const phone = `+${msg.from.replace(/\D/g, "")}`;
-    const { data: lead } = await admin
-      .from("leads")
+    // idempotência: Meta reenvia webhooks — não duplica a mensagem
+    const { data: existing } = await admin
+      .from("messages")
       .select("id")
       .eq("company_id", companyId)
-      .or(`whatsapp.eq.${phone},phone.eq.${phone}`)
-      .maybeSingle();
-    if (!lead) continue;
+      .eq("provider_message_id", msg.providerMessageId)
+      .limit(1);
+    if (existing && existing.length) {
+      console.log(
+        `[whatsapp/webhook] mensagem ${msg.providerMessageId} já registrada — ignorando reenvio`,
+      );
+      continue;
+    }
 
-    // conversa (upsert lógico)
+    // casa o lead pelo telefone (robusto a "+", DDI e 9º dígito BR)
+    const candidates = phoneMatchCandidates(msg.from);
+    let lead: { id: string } | null = null;
+    for (const col of ["whatsapp", "phone"] as const) {
+      if (candidates.length === 0) break;
+      const { data } = await admin
+        .from("leads")
+        .select("id")
+        .eq("company_id", companyId)
+        .in(col, candidates)
+        .limit(1);
+      if (data && data.length) {
+        lead = data[0];
+        break;
+      }
+    }
+    if (!lead) {
+      console.warn(
+        `[whatsapp/webhook] nenhum lead para ${maskPhone(msg.from)} na empresa ${companyId} (testados ${candidates.length} formatos)`,
+      );
+      continue;
+    }
+
+    // conversa (1 por lead+canal)
     let { data: conversation } = await admin
       .from("conversations")
       .select("id")
@@ -86,7 +134,7 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
 
     if (!conversation) {
-      const { data: created } = await admin
+      const { data: created, error } = await admin
         .from("conversations")
         .insert({
           company_id: companyId,
@@ -98,11 +146,17 @@ export async function POST(req: NextRequest) {
         })
         .select("id")
         .single();
+      if (error) {
+        console.error(
+          `[whatsapp/webhook] falha ao criar conversa (lead ${lead.id}): ${error.message}`,
+        );
+        continue;
+      }
       conversation = created;
     }
     if (!conversation) continue;
 
-    await admin.from("messages").insert({
+    const { error: msgErr } = await admin.from("messages").insert({
       company_id: companyId,
       conversation_id: conversation.id,
       lead_id: lead.id,
@@ -114,12 +168,22 @@ export async function POST(req: NextRequest) {
       provider_message_id: msg.providerMessageId,
       sent_at: new Date(Number(msg.timestamp) * 1000).toISOString(),
     });
+    if (msgErr) {
+      console.error(
+        `[whatsapp/webhook] falha ao inserir mensagem (lead ${lead.id}): ${msgErr.message}`,
+      );
+      continue;
+    }
 
     await admin
       .from("leads")
       .update({ status: "replied" })
       .eq("id", lead.id)
       .in("status", ["new", "qualified", "contacted"]);
+
+    console.log(
+      `[whatsapp/webhook] OK — conversa ${conversation.id} + mensagem inbound para o lead ${lead.id}`,
+    );
   }
 
   return NextResponse.json({ ok: true });
