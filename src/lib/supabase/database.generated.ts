@@ -544,6 +544,187 @@ export type Database = {
           },
         ]
       }
+      catalog_events: {
+        Row: {
+          company_id: string
+          created_at: string
+          id: string
+          kind: string
+          payload: Json
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          id?: string
+          kind: string
+          payload?: Json
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          id?: string
+          kind?: string
+          payload?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "catalog_events_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "catalog_events_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "dashboard_metrics"
+            referencedColumns: ["company_id"]
+          },
+        ]
+      }
+      catalog_import_jobs: {
+        Row: {
+          applied_count: number
+          company_id: string
+          created_at: string
+          created_by: string | null
+          error_message: string | null
+          extracted_count: number
+          extracted_items: Json
+          file_name: string | null
+          file_path: string
+          id: string
+          review_count: number
+          source_id: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          applied_count?: number
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          error_message?: string | null
+          extracted_count?: number
+          extracted_items?: Json
+          file_name?: string | null
+          file_path: string
+          id?: string
+          review_count?: number
+          source_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          applied_count?: number
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          error_message?: string | null
+          extracted_count?: number
+          extracted_items?: Json
+          file_name?: string | null
+          file_path?: string
+          id?: string
+          review_count?: number
+          source_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "catalog_import_jobs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "catalog_import_jobs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "dashboard_metrics"
+            referencedColumns: ["company_id"]
+          },
+          {
+            foreignKeyName: "catalog_import_jobs_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "catalog_sources"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      catalog_sources: {
+        Row: {
+          company_id: string
+          config: Json
+          created_at: string
+          created_by: string | null
+          error_message: string | null
+          external_url: string | null
+          file_name: string | null
+          file_path: string | null
+          id: string
+          kind: Database["public"]["Enums"]["catalog_source_kind"]
+          last_sync_at: string | null
+          last_sync_summary: Json | null
+          products_count: number
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          config?: Json
+          created_at?: string
+          created_by?: string | null
+          error_message?: string | null
+          external_url?: string | null
+          file_name?: string | null
+          file_path?: string | null
+          id?: string
+          kind: Database["public"]["Enums"]["catalog_source_kind"]
+          last_sync_at?: string | null
+          last_sync_summary?: Json | null
+          products_count?: number
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          config?: Json
+          created_at?: string
+          created_by?: string | null
+          error_message?: string | null
+          external_url?: string | null
+          file_name?: string | null
+          file_path?: string | null
+          id?: string
+          kind?: Database["public"]["Enums"]["catalog_source_kind"]
+          last_sync_at?: string | null
+          last_sync_summary?: Json | null
+          products_count?: number
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "catalog_sources_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "catalog_sources_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "dashboard_metrics"
+            referencedColumns: ["company_id"]
+          },
+        ]
+      }
       companies: {
         Row: {
           brand_color: string | null
@@ -1773,6 +1954,207 @@ export type Database = {
           },
         ]
       }
+      product_variants: {
+        Row: {
+          attributes: Json
+          company_id: string
+          created_at: string
+          currency: string
+          external_id: string | null
+          id: string
+          is_active: boolean
+          lead_time_days: number | null
+          min_quantity: number | null
+          needs_review: boolean
+          notes: string | null
+          option_ids: string[]
+          price: number | null
+          price_kind: string
+          price_tiers: Json | null
+          product_id: string
+          sku: string | null
+          sort_order: number
+          source: Database["public"]["Enums"]["catalog_source_kind"]
+          stock_quantity: number | null
+          updated_at: string
+        }
+        Insert: {
+          attributes?: Json
+          company_id: string
+          created_at?: string
+          currency?: string
+          external_id?: string | null
+          id?: string
+          is_active?: boolean
+          lead_time_days?: number | null
+          min_quantity?: number | null
+          needs_review?: boolean
+          notes?: string | null
+          option_ids?: string[]
+          price?: number | null
+          price_kind?: string
+          price_tiers?: Json | null
+          product_id: string
+          sku?: string | null
+          sort_order?: number
+          source?: Database["public"]["Enums"]["catalog_source_kind"]
+          stock_quantity?: number | null
+          updated_at?: string
+        }
+        Update: {
+          attributes?: Json
+          company_id?: string
+          created_at?: string
+          currency?: string
+          external_id?: string | null
+          id?: string
+          is_active?: boolean
+          lead_time_days?: number | null
+          min_quantity?: number | null
+          needs_review?: boolean
+          notes?: string | null
+          option_ids?: string[]
+          price?: number | null
+          price_kind?: string
+          price_tiers?: Json | null
+          product_id?: string
+          sku?: string | null
+          sort_order?: number
+          source?: Database["public"]["Enums"]["catalog_source_kind"]
+          stock_quantity?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_variants_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_variants_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "dashboard_metrics"
+            referencedColumns: ["company_id"]
+          },
+          {
+            foreignKeyName: "product_variants_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      product_variation_groups: {
+        Row: {
+          company_id: string
+          created_at: string
+          external_id: string | null
+          id: string
+          name: string
+          product_id: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          external_id?: string | null
+          id?: string
+          name: string
+          product_id: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          external_id?: string | null
+          id?: string
+          name?: string
+          product_id?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_variation_groups_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_variation_groups_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "dashboard_metrics"
+            referencedColumns: ["company_id"]
+          },
+          {
+            foreignKeyName: "product_variation_groups_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      product_variation_options: {
+        Row: {
+          company_id: string
+          created_at: string
+          external_id: string | null
+          group_id: string
+          id: string
+          sort_order: number
+          value: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          external_id?: string | null
+          group_id: string
+          id?: string
+          sort_order?: number
+          value: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          external_id?: string | null
+          group_id?: string
+          id?: string
+          sort_order?: number
+          value?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_variation_options_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_variation_options_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "dashboard_metrics"
+            referencedColumns: ["company_id"]
+          },
+          {
+            foreignKeyName: "product_variation_options_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "product_variation_groups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       products: {
         Row: {
           applications: string[]
@@ -1783,17 +2165,24 @@ export type Database = {
           created_at: string
           description: string | null
           example_buyers: string[]
+          external_id: string | null
+          external_source: string | null
+          external_url: string | null
           id: string
           ideal_audience: string | null
           is_active: boolean
           keywords: string[]
           kind: string
+          last_synced_at: string | null
           lead_time_days: number | null
           min_quantity: number | null
           name: string
+          needs_review: boolean
           photo_urls: string[]
           price_avg: number | null
           price_start: number | null
+          search_text: string | null
+          source: Database["public"]["Enums"]["catalog_source_kind"]
           tags: string[]
           updated_at: string
           use_cases: string[]
@@ -1807,17 +2196,24 @@ export type Database = {
           created_at?: string
           description?: string | null
           example_buyers?: string[]
+          external_id?: string | null
+          external_source?: string | null
+          external_url?: string | null
           id?: string
           ideal_audience?: string | null
           is_active?: boolean
           keywords?: string[]
           kind?: string
+          last_synced_at?: string | null
           lead_time_days?: number | null
           min_quantity?: number | null
           name: string
+          needs_review?: boolean
           photo_urls?: string[]
           price_avg?: number | null
           price_start?: number | null
+          search_text?: string | null
+          source?: Database["public"]["Enums"]["catalog_source_kind"]
           tags?: string[]
           updated_at?: string
           use_cases?: string[]
@@ -1831,17 +2227,24 @@ export type Database = {
           created_at?: string
           description?: string | null
           example_buyers?: string[]
+          external_id?: string | null
+          external_source?: string | null
+          external_url?: string | null
           id?: string
           ideal_audience?: string | null
           is_active?: boolean
           keywords?: string[]
           kind?: string
+          last_synced_at?: string | null
           lead_time_days?: number | null
           min_quantity?: number | null
           name?: string
+          needs_review?: boolean
           photo_urls?: string[]
           price_avg?: number | null
           price_start?: number | null
+          search_text?: string | null
+          source?: Database["public"]["Enums"]["catalog_source_kind"]
           tags?: string[]
           updated_at?: string
           use_cases?: string[]
@@ -2168,6 +2571,18 @@ export type Database = {
         Returns: boolean
       }
       rate_limits_gc: { Args: never; Returns: undefined }
+      search_commercial_catalog: {
+        Args: { p_company_id: string; p_limit?: number; p_query: string }
+        Returns: {
+          description: string
+          is_active: boolean
+          name: string
+          product_id: string
+          rank: number
+          source: Database["public"]["Enums"]["catalog_source_kind"]
+        }[]
+      }
+      search_normalize: { Args: { "": string }; Returns: string }
       seed_lumilife: { Args: never; Returns: string }
     }
     Enums: {
@@ -2186,6 +2601,7 @@ export type Database = {
         | "stage_changed"
         | "task_due"
       campaign_status: "draft" | "active" | "paused" | "completed" | "archived"
+      catalog_source_kind: "manual" | "pdf" | "precy_online"
       channel_type: "whatsapp" | "email" | "instagram" | "call" | "manual"
       conversation_status: "open" | "pending" | "closed"
       lead_status:
@@ -2360,6 +2776,7 @@ export const Constants = {
         "task_due",
       ],
       campaign_status: ["draft", "active", "paused", "completed", "archived"],
+      catalog_source_kind: ["manual", "pdf", "precy_online"],
       channel_type: ["whatsapp", "email", "instagram", "call", "manual"],
       conversation_status: ["open", "pending", "closed"],
       lead_status: [

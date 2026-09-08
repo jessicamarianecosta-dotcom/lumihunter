@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { tryGetContext, canWrite } from "@/lib/auth/context";
-import { catalogAdmin } from "@/lib/catalog/db";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { upsertSource, logCatalogEvent } from "@/lib/catalog/sources";
 import { processImportJob } from "@/lib/catalog/pdf";
 
@@ -30,7 +30,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const admin = catalogAdmin();
+  const admin = createAdminClient();
   const path = `${ctx.company.id}/${randomUUID()}.pdf`;
 
   const { error: upErr } = await admin.storage

@@ -16,23 +16,16 @@ create schema if not exists extensions;
 create extension if not exists pg_trgm  with schema extensions;
 create extension if not exists unaccent with schema extensions;
 
--- `unaccent` é STABLE mas o Postgres a marca como não-imutável; para usar em
--- índice/coluna gerada precisamos de um wrapper imutável.
-create or replace function public.immutable_unaccent(text)
-returns text
-language sql
-immutable
-parallel safe
-strict
-as $$ select extensions.unaccent('extensions.unaccent', $1) $$;
-
 -- Normaliza texto para busca: minúsculo + sem acento.
+-- STABLE (unaccent é stable). Usado pela RPC e pelo trigger de search_text —
+-- NÃO em coluna gerada (Postgres exige imutabilidade lá).
 create or replace function public.search_normalize(text)
 returns text
 language sql
-immutable
+stable
 parallel safe
-as $$ select lower(public.immutable_unaccent(coalesce($1, ''))) $$;
+set search_path = public, extensions
+as $$ select lower(extensions.unaccent('extensions.unaccent'::regdictionary, coalesce($1, ''))) $$;
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- 1. Proveniência em `products`
@@ -56,17 +49,41 @@ create unique index if not exists products_external_uident
   where external_source is not null and external_id is not null;
 
 -- Busca textual sobre o produto (nome + descrição + palavras-chave + aplicações).
+-- Coluna simples mantida por trigger (coluna gerada exigiria função imutável).
 alter table public.products
-  add column if not exists search_text text
-  generated always as (
-    public.search_normalize(
-      coalesce(name, '') || ' ' ||
-      coalesce(description, '') || ' ' ||
-      array_to_string(keywords, ' ') || ' ' ||
-      array_to_string(applications, ' ') || ' ' ||
-      array_to_string(tags, ' ')
-    )
-  ) stored;
+  add column if not exists search_text text;
+
+create or replace function public.products_search_text_sync()
+returns trigger
+language plpgsql
+set search_path = public, extensions
+as $$
+begin
+  new.search_text := public.search_normalize(
+    coalesce(new.name, '') || ' ' ||
+    coalesce(new.description, '') || ' ' ||
+    array_to_string(coalesce(new.keywords, '{}'::text[]), ' ') || ' ' ||
+    array_to_string(coalesce(new.applications, '{}'::text[]), ' ') || ' ' ||
+    array_to_string(coalesce(new.tags, '{}'::text[]), ' ')
+  );
+  return new;
+end;
+$$;
+
+drop trigger if exists products_search_text_sync on public.products;
+create trigger products_search_text_sync
+  before insert or update of name, description, keywords, applications, tags
+  on public.products
+  for each row execute function public.products_search_text_sync();
+
+-- backfill dos produtos já existentes
+update public.products set search_text = public.search_normalize(
+  coalesce(name, '') || ' ' ||
+  coalesce(description, '') || ' ' ||
+  array_to_string(coalesce(keywords, '{}'::text[]), ' ') || ' ' ||
+  array_to_string(coalesce(applications, '{}'::text[]), ' ') || ' ' ||
+  array_to_string(coalesce(tags, '{}'::text[]), ' ')
+);
 
 create index if not exists products_search_trgm
   on public.products using gin (search_text extensions.gin_trgm_ops);
@@ -222,25 +239,40 @@ returns table (
 language sql
 stable
 security invoker
+set search_path = public, extensions
 as $$
+  with q as (
+    select
+      public.search_normalize(p_query) as norm,
+      array(
+        select w from unnest(
+          string_to_array(public.search_normalize(p_query), ' ')
+        ) as w
+        where length(w) >= 3
+      ) as words
+  )
   select
-    p.id,
-    p.name,
-    p.description,
-    p.source,
-    p.is_active,
-    extensions.similarity(p.search_text, public.search_normalize(p_query)) as rank
-  from public.products p
+    p.id, p.name, p.description, p.source, p.is_active,
+    (
+      -- nº de palavras da consulta presentes no texto do produto
+      (select count(*) from unnest(q.words) w where p.search_text like '%' || w || '%')::real
+      -- + bônus de similaridade trigram (0..1)
+      + coalesce(extensions.similarity(p.search_text, q.norm), 0)
+    ) as rank
+  from public.products p, q
   where p.company_id = p_company_id
     and (
-      p.search_text % public.search_normalize(p_query)
-      or p.search_text ilike '%' || public.search_normalize(p_query) || '%'
+      q.words = array[]::text[]
+      or exists (
+        select 1 from unnest(q.words) w where p.search_text like '%' || w || '%'
+      )
+      or p.search_text like '%' || q.norm || '%'
     )
   order by rank desc, p.is_active desc, p.name
-  limit greatest(1, least(p_limit, 50));
+  limit greatest(1, least(coalesce(p_limit, 12), 50));
 $$;
 
 revoke execute on function public.search_commercial_catalog(uuid, text, integer) from anon;
 
 comment on function public.search_commercial_catalog is
-  'Busca textual (trigram + ilike, sem acento) no catálogo de uma empresa. RLS de products se aplica porque é security invoker.';
+  'Busca textual por palavras (sem acento) + bônus trigram no catálogo de uma empresa. security invoker → RLS de products se aplica.';

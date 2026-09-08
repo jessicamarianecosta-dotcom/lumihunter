@@ -5,7 +5,7 @@
  * existirem, retorna `ready: false` em vez de estourar, para a UI mostrar um
  * aviso claro em vez de quebrar.
  */
-import { catalogAdmin } from "./db";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type {
   CatalogEvent,
   CatalogImportJob,
@@ -21,18 +21,25 @@ export interface CatalogOverview {
   jobs: CatalogImportJob[];
 }
 
-function isMissingRelation(err: unknown): boolean {
+export function isMissingRelation(err: unknown): boolean {
   const msg = (err as { message?: string; code?: string })?.message ?? "";
   const code = (err as { code?: string })?.code ?? "";
   return (
     code === "42P01" ||
     /relation .* does not exist/i.test(msg) ||
-    /Could not find the table/i.test(msg)
+    /Could not find the table/i.test(msg) ||
+    /SUPABASE_SERVICE_ROLE_KEY/i.test(msg)
   );
 }
 
 export async function getCatalogOverview(companyId: string): Promise<CatalogOverview> {
-  const admin = catalogAdmin();
+  let admin: ReturnType<typeof createAdminClient>;
+  try {
+    admin = createAdminClient();
+  } catch {
+    // sem service-role key configurada → Base Comercial indisponível, sem quebrar
+    return { ready: false, manualCount: 0, sources: [], jobs: [] };
+  }
   try {
     const [{ data: sources }, { data: jobs }, { count }] = await Promise.all([
       admin
@@ -59,10 +66,12 @@ export async function getCatalogOverview(companyId: string): Promise<CatalogOver
       jobs: (jobs ?? []) as CatalogImportJob[],
     };
   } catch (err) {
-    if (isMissingRelation(err)) {
-      return { ready: false, manualCount: 0, sources: [], jobs: [] };
+    // Qualquer falha ao ler a Base Comercial (tabela ausente, credencial, rede)
+    // → a UI mostra o aviso em vez de derrubar a página de Produtos.
+    if (!isMissingRelation(err)) {
+      console.error("[catalog] getCatalogOverview falhou:", err);
     }
-    throw err;
+    return { ready: false, manualCount: 0, sources: [], jobs: [] };
   }
 }
 
@@ -79,7 +88,7 @@ export async function upsertSource(args: {
   patch: Partial<CatalogSource>;
   createdBy?: string | null;
 }): Promise<CatalogSource> {
-  const admin = catalogAdmin();
+  const admin = createAdminClient();
   const { data, error } = await admin
     .from("catalog_sources")
     .upsert(
@@ -98,7 +107,7 @@ export async function upsertSource(args: {
 }
 
 export async function removeSource(companyId: string, kind: CatalogSourceKind) {
-  const admin = catalogAdmin();
+  const admin = createAdminClient();
   await admin
     .from("catalog_sources")
     .delete()
@@ -112,7 +121,7 @@ export async function logCatalogEvent(
   payload: Json = {},
 ): Promise<void> {
   try {
-    await catalogAdmin().from("catalog_events").insert({
+    await createAdminClient().from("catalog_events").insert({
       company_id: companyId,
       kind,
       payload,

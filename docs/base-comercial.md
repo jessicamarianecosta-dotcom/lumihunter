@@ -1,7 +1,8 @@
 # Base Comercial — Produtos & Serviços consultável pelos agentes
 
-> Status: **Etapas 3 e 5** (extração de PDF estruturada + Base Comercial ligada
-> ao Sales Coach). As migrations ainda **não foram aplicadas** — ver "Aplicar".
+> Status: **em produção**. Migration `20260908210000_base_comercial.sql`
+> aplicada; tipos regerados (`database.generated.ts`); o client tipado isolado
+> `src/lib/catalog/db.ts` foi removido — a camada usa `createAdminClient()`.
 > Análise técnica do Precy+: `docs/precy-integracao.md`.
 
 ## Objetivo
@@ -134,16 +135,17 @@ Fluxo: última mensagem do lead → se parece pergunta comercial
 Prioridade de fontes (precy > pdf > manual), conflito de preço e merge sem
 apagar complementares: `src/lib/catalog/resolve.ts` (puro, testado).
 
-## Aplicar (quando aprovado)
+## Migration (já aplicada)
 
-```bash
-# 1. revisar supabase/migrations/20260908210000_base_comercial.sql
-# 2. aplicar
-npm run db:push
-# 3. regerar tipos e remover o bloco manual de database.types.ts / o db.ts isolado
-npm run db:types
-```
-
-Pontos a validar ao aplicar: operador `%` do `pg_trgm` e `unaccent` schema-
-qualificados dentro da RPC `security invoker` (search_path do papel `authenticated`
-no Supabase inclui `extensions`, então deve funcionar; confirmar).
+`20260908210000_base_comercial.sql` — só aditiva:
+- `products` +`source`/`external_source`/`external_id`/`external_url`/
+  `last_synced_at`/`needs_review`/`search_text` (coluna simples mantida pelo
+  trigger `products_search_text_sync`; backfill feito).
+- Extensões `pg_trgm` e `unaccent` no schema `extensions`.
+- Tabelas `catalog_sources`, `product_variation_groups`, `_options`,
+  `product_variants`, `catalog_import_jobs`, `catalog_events` — RLS via
+  `apply_tenant_rls` (4 políticas cada, `company_id`).
+- RPC `search_commercial_catalog(company_id, query, limit)` — `security invoker`,
+  `SET search_path = public, extensions`, busca por palavras (sem acento) +
+  bônus trigram. Verificado: `Cartão de visita` ranqueia no topo; isolamento
+  entre empresas OK (0 vazamento cross-tenant).

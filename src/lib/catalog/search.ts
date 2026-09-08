@@ -5,7 +5,7 @@
  * então o isolamento entre empresas é garantido no código. Chamado pelos
  * agentes de IA e pela UI de Produtos.
  */
-import { catalogAdmin, type CatalogAdmin } from "./db";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type {
   ProductVariantRow,
   ProductVariationGroupRow,
@@ -33,7 +33,9 @@ function buildVariant(
       .map((id) => optionLabelById.get(id))
       .filter((v): v is string => !!v),
     attributes: attrs,
-    priceKind: row.price_kind,
+    priceKind: (["fixed", "per_unit", "per_quantity", "quote"].includes(row.price_kind)
+      ? row.price_kind
+      : "fixed") as CommercialVariant["priceKind"],
     price: row.price,
     priceTiers: tiers,
     currency: row.currency,
@@ -48,7 +50,7 @@ function buildVariant(
 }
 
 async function loadProducts(
-  admin: CatalogAdmin,
+  admin: ReturnType<typeof createAdminClient>,
   companyId: string,
   productIds: string[],
 ): Promise<CommercialProduct[]> {
@@ -143,7 +145,7 @@ export async function searchCatalog(args: {
   requestedSpecs?: string[];
   limit?: number;
 }): Promise<SearchOutcome> {
-  const admin = catalogAdmin();
+  const admin = createAdminClient();
   const limit = args.limit ?? 8;
 
   let matchIds: string[] = [];
@@ -156,11 +158,23 @@ export async function searchCatalog(args: {
     if (error) throw error;
     matchIds = (data ?? []).map((m) => m.product_id);
   } catch {
+    // Fallback sem a RPC: casa QUALQUER palavra relevante da consulta no nome
+    // ou na descrição (a consulta já vem "limpa" de deriveCommercialQuery).
+    const words = args.query
+      .split(/\s+/)
+      .map((w) => w.trim())
+      .filter((w) => w.length > 2)
+      .slice(0, 6);
+    const orFilter = words.length
+      ? words
+          .flatMap((w) => [`name.ilike.%${w}%`, `description.ilike.%${w}%`])
+          .join(",")
+      : `name.ilike.%${args.query}%`;
     const { data } = await admin
       .from("products")
       .select("id")
       .eq("company_id", args.companyId)
-      .ilike("name", `%${args.query}%`)
+      .or(orFilter)
       .limit(limit);
     matchIds = (data ?? []).map((r) => r.id);
   }

@@ -6,7 +6,7 @@
  * (source = 'pdf'). Extração inválida NUNCA vira produto — o job vai para erro.
  */
 import Anthropic from "@anthropic-ai/sdk";
-import { catalogAdmin } from "./db";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveActiveAi } from "@/lib/ai";
 import { logCatalogEvent } from "./sources";
 import {
@@ -21,7 +21,7 @@ import type { Json } from "@/lib/supabase/database.types";
 export type { NormalizedItem, NormalizedVariant } from "./extract";
 
 async function downloadPdfBase64(filePath: string): Promise<string> {
-  const admin = catalogAdmin();
+  const admin = createAdminClient();
   const { data, error } = await admin.storage.from("catalogs").download(filePath);
   if (error || !data) throw new Error(`Falha ao ler o PDF do storage: ${error?.message}`);
   const buf = Buffer.from(await data.arrayBuffer());
@@ -30,7 +30,7 @@ async function downloadPdfBase64(filePath: string): Promise<string> {
 
 /** Processa um job: extrai + valida os itens do PDF e move para `review` (ou `error`). */
 export async function processImportJob(jobId: string): Promise<void> {
-  const admin = catalogAdmin();
+  const admin = createAdminClient();
   const { data: job } = await admin
     .from("catalog_import_jobs")
     .select("*")
@@ -133,7 +133,7 @@ export async function applyImportJob(args: {
   approved: number[];
   edits?: Record<number, Partial<NormalizedItem>>;
 }): Promise<{ created: number }> {
-  const admin = catalogAdmin();
+  const admin = createAdminClient();
   const { data: job } = await admin
     .from("catalog_import_jobs")
     .select("*")
