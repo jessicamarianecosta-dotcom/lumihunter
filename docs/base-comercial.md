@@ -1,7 +1,8 @@
 # Base Comercial — Produtos & Serviços consultável pelos agentes
 
-> Status: **Etapa 1** (estrutura de dados + camada de consulta). As migrations
-> ainda **não foram aplicadas** — ver "Aplicar" no fim.
+> Status: **Etapa 2** (interface de Fontes do Catálogo + importação de PDF).
+> As migrations ainda **não foram aplicadas** — ver "Aplicar" no fim.
+> Análise técnica do Precy+: `docs/precy-integracao.md`.
 
 ## Objetivo
 
@@ -68,6 +69,26 @@ Supabase do Precy+** direto do navegador, com anon key pública, RLS filtrando
 **Decisão atual:** implementar só a interface + mock. A conexão real (usar o
 anon key público deles ou pedir um endpoint dedicado) fica para uma etapa
 posterior, após confirmação.
+
+## Interface (Etapa 2)
+
+`/produtos` → seção **"Fontes do catálogo"** (`src/components/produtos/catalog-sources.tsx`):
+- **Cadastro manual** — contador.
+- **Catálogo PDF** — `PdfImportDialog`: upload (valida MIME/tamanho, `CATALOG_PDF_MAX_MB`),
+  guarda em `catalogs/<company_id>/`, cria `catalog_import_jobs`, extrai
+  (`src/lib/catalog/pdf.ts` — Anthropic com leitura nativa de PDF; sem chave =
+  extração de exemplo para o fluxo de revisão), **prévia com checkbox por item**
+  (itens ambíguos marcados "revisar" e desmarcados por padrão), "Importar" cria
+  products + variações + variantes com `source='pdf'`.
+- **Catálogo online (Precy+)** — `PrecySourceCard`: campo de URL (salva em
+  `catalog_sources`), **Testar conexão** (`/api/catalog/precy/test`),
+  **Sincronizar** (`/api/catalog/precy/sync` — responde 501 "confirmação pendente"
+  até `PRECY_ENABLED`), **Abrir catálogo**.
+
+Se a migration não estiver aplicada, a seção mostra um aviso em vez de quebrar.
+
+Rotas: `POST /api/catalog/pdf/upload`, `GET|POST /api/catalog/pdf/jobs/[id]`,
+`POST /api/catalog/precy/{test,sync}`.
 
 ## Aplicar (quando aprovado)
 

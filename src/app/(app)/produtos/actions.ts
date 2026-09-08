@@ -3,6 +3,73 @@
 import { revalidatePath } from "next/cache";
 import { getAppContext, canWrite } from "@/lib/auth/context";
 import { createClient } from "@/lib/supabase/server";
+import { upsertSource, removeSource } from "@/lib/catalog/sources";
+import { parseStoreSlug } from "@/lib/catalog/providers/precy";
+
+export interface CatalogUrlResult {
+  ok: boolean;
+  error?: string;
+}
+
+/** Salva/atualiza a URL do catálogo online (Precy+) da empresa. */
+export async function saveCatalogOnlineUrl(
+  _prev: CatalogUrlResult | null,
+  formData: FormData,
+): Promise<CatalogUrlResult> {
+  const ctx = await getAppContext();
+  if (!canWrite(ctx.role)) return { ok: false, error: "sem permissão" };
+
+  const url = String(formData.get("url") || "").trim();
+  if (!url) {
+    try {
+      await removeSource(ctx.company.id, "precy_online");
+    } catch (e) {
+      return { ok: false, error: friendly(e) };
+    }
+    revalidatePath("/produtos");
+    return { ok: true };
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return { ok: false, error: "URL inválida." };
+  }
+  const slug = parseStoreSlug(url);
+
+  try {
+    await upsertSource({
+      companyId: ctx.company.id,
+      kind: "precy_online",
+      createdBy: ctx.userId,
+      patch: {
+        external_url: url,
+        status: "connected",
+        config: { host: parsed.host, slug } as never,
+      },
+    });
+  } catch (e) {
+    return { ok: false, error: friendly(e) };
+  }
+  revalidatePath("/produtos");
+  return { ok: true };
+}
+
+export async function deleteCatalogSource(kind: "pdf" | "precy_online") {
+  const ctx = await getAppContext();
+  if (!canWrite(ctx.role)) throw new Error("sem permissão");
+  await removeSource(ctx.company.id, kind);
+  revalidatePath("/produtos");
+}
+
+function friendly(e: unknown): string {
+  const m = (e as Error)?.message ?? "erro";
+  if (/relation .* does not exist|Could not find the table/i.test(m)) {
+    return "Base Comercial ainda não ativada (aplique a migration 20260908210000).";
+  }
+  return m;
+}
 
 function list(v: FormDataEntryValue | null): string[] {
   return String(v ?? "")
