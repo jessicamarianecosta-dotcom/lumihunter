@@ -56,8 +56,13 @@ export async function updateSession(request: NextRequest) {
   const isPublic = PUBLIC_PATHS.some(
     (p) => path === p || path.startsWith(`${p}/`),
   );
+  // Rotas de API cuidam da própria autenticação (sessão, CRON_SECRET, ou
+  // assinatura de webhook). Nunca redirecionar uma chamada de API para a
+  // página de login HTML — ex.: o webhook GET/POST da Meta e o cron da Vercel
+  // chegam sem cookie de sessão e devem alcançar o route handler.
+  const isApi = path.startsWith("/api/");
 
-  if (!user && !isPublic) {
+  if (!user && !isPublic && !isApi) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("next", path);
