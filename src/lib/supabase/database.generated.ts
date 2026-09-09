@@ -447,6 +447,7 @@ export type Database = {
           completed_at: string | null
           created_at: string
           created_by: string | null
+          current_discovery_run_id: string | null
           followup_sequence_id: string | null
           goal: string | null
           icp_id: string | null
@@ -471,6 +472,7 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           created_by?: string | null
+          current_discovery_run_id?: string | null
           followup_sequence_id?: string | null
           goal?: string | null
           icp_id?: string | null
@@ -495,6 +497,7 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           created_by?: string | null
+          current_discovery_run_id?: string | null
           followup_sequence_id?: string | null
           goal?: string | null
           icp_id?: string | null
@@ -976,6 +979,93 @@ export type Database = {
           },
         ]
       }
+      discovery_runs: {
+        Row: {
+          ai_used: boolean
+          buyer_profile_source: string | null
+          buyer_segments: Json
+          campaign_id: string
+          company_id: string
+          competitors: number
+          completed_at: string | null
+          created_at: string
+          created_by: string | null
+          discarded: number
+          error: string | null
+          found: number
+          id: string
+          no_whatsapp: number
+          prospectable: number
+          qualified: number
+          queries_count: number
+          raw_count: number
+          started_at: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          ai_used?: boolean
+          buyer_profile_source?: string | null
+          buyer_segments?: Json
+          campaign_id: string
+          company_id: string
+          competitors?: number
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          discarded?: number
+          error?: string | null
+          found?: number
+          id?: string
+          no_whatsapp?: number
+          prospectable?: number
+          qualified?: number
+          queries_count?: number
+          raw_count?: number
+          started_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          ai_used?: boolean
+          buyer_profile_source?: string | null
+          buyer_segments?: Json
+          campaign_id?: string
+          company_id?: string
+          competitors?: number
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          discarded?: number
+          error?: string | null
+          found?: number
+          id?: string
+          no_whatsapp?: number
+          prospectable?: number
+          qualified?: number
+          queries_count?: number
+          raw_count?: number
+          started_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "discovery_runs_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "discovery_runs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       followup_sequences: {
         Row: {
           channel: Database["public"]["Enums"]["channel_type"]
@@ -1401,6 +1491,7 @@ export type Database = {
           description: string | null
           discovered_at: string
           discovery_query: string | null
+          discovery_run_id: string | null
           email: string | null
           id: string
           instagram: string | null
@@ -1449,6 +1540,7 @@ export type Database = {
           description?: string | null
           discovered_at?: string
           discovery_query?: string | null
+          discovery_run_id?: string | null
           email?: string | null
           id?: string
           instagram?: string | null
@@ -1497,6 +1589,7 @@ export type Database = {
           description?: string | null
           discovered_at?: string
           discovery_query?: string | null
+          discovery_run_id?: string | null
           email?: string | null
           id?: string
           instagram?: string | null

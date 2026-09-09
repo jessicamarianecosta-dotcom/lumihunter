@@ -11,9 +11,11 @@ interface Props {
   /** true quando a campanha já tem produto + público + região. */
   ready: boolean;
   configured: boolean;
+  /** true se já houve pelo menos uma pesquisa concluída. */
+  hasRun: boolean;
 }
 
-export function DiscoveryPanel({ campaignId, regions, ready, configured }: Props) {
+export function DiscoveryPanel({ campaignId, regions, ready, configured, hasRun }: Props) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
@@ -28,7 +30,7 @@ export function DiscoveryPanel({ campaignId, regions, ready, configured }: Props
     setResult(null);
     setError(null);
     const regionLabel = regions.slice(0, 2).join(", ") || "sua região";
-    setProgress("Identificando o perfil de comprador do seu produto…");
+    setProgress("Nova pesquisa iniciada — identificando o perfil de comprador…");
     timers.current.push(
       setTimeout(
         () => setProgress(`Encontrando empresas que podem comprar seu produto em ${regionLabel}…`),
@@ -36,6 +38,7 @@ export function DiscoveryPanel({ campaignId, regions, ready, configured }: Props
       ),
       setTimeout(() => setProgress("Validando compatibilidade (comprador × produto)…"), 9000),
       setTimeout(() => setProgress("Procurando WhatsApps comerciais…"), 18000),
+      setTimeout(() => setProgress("Finalizando a nova pesquisa…"), 28000),
     );
 
     try {
@@ -52,18 +55,16 @@ export function DiscoveryPanel({ campaignId, regions, ready, configured }: Props
           data.error ??
             "Não foi possível realizar a busca. Tente novamente em instantes.",
         );
-      } else if (data.found === 0 && data.inserted === 0) {
+      } else if (data.found === 0) {
         setResult(
-          `A busca rodou (${data.queries} consultas, ${data.rawResults} resultados) mas nenhuma empresa compradora nova foi encontrada. Ajuste o produto/público ou a região.`,
+          `Nova pesquisa concluída: ${data.queries} consultas, ${data.rawResults} resultados, mas nenhuma empresa compradora. Ajuste o produto/público ou a região.`,
         );
         router.refresh();
       } else {
         setResult(
-          `Encontramos ${data.found} ${
+          `Nova pesquisa concluída: ${data.found} ${
             data.found === 1 ? "empresa" : "empresas"
-          } · ${data.prospectable ?? 0} prospectáveis (com WhatsApp) · ${
-            data.qualified
-          } qualificadas${
+          } · ${data.prospectable ?? 0} com WhatsApp · ${data.qualified} qualificadas${
             data.competitors ? ` · ${data.competitors} concorrentes descartados` : ""
           }${data.noWhatsapp ? ` · ${data.noWhatsapp} sem WhatsApp` : ""}.`,
         );
@@ -86,6 +87,9 @@ export function DiscoveryPanel({ campaignId, regions, ready, configured }: Props
         <p className="text-[13px] text-muted-foreground">
           O LumiHunter procura empresas reais que correspondem ao produto, ao
           público e à região desta campanha.
+          {hasRun
+            ? " Cada nova pesquisa recomeça do zero e substitui a lista atual — os leads já aprovados continuam na campanha."
+            : ""}
         </p>
       </div>
 
@@ -108,7 +112,11 @@ export function DiscoveryPanel({ campaignId, regions, ready, configured }: Props
         ) : (
           <Search className="size-4" />
         )}
-        {loading ? "Procurando…" : "🔎 Procurar possíveis clientes"}
+        {loading
+          ? "Procurando…"
+          : hasRun
+            ? "🔄 Nova pesquisa"
+            : "🔎 Procurar possíveis clientes"}
       </Button>
 
       {progress && (

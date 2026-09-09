@@ -13,6 +13,7 @@ import {
   tavilyErrorMessage,
   type CampaignBrief,
 } from "@/lib/discovery";
+import { resolveRowStatus, runStats } from "@/lib/discovery/run";
 
 export const maxDuration = 300;
 
@@ -92,11 +93,71 @@ export async function POST(
     );
   }
 
+  // ── Concorrência: uma rodada por vez ──────────────────────────────────
+  const staleCutoff = new Date(Date.now() - 6 * 60_000).toISOString();
+  const { data: running } = await admin
+    .from("discovery_runs")
+    .select("id, started_at")
+    .eq("campaign_id", id)
+    .eq("status", "running")
+    .gt("started_at", staleCutoff)
+    .limit(1);
+  if (running && running.length > 0) {
+    return NextResponse.json(
+      {
+        error: "Já existe uma pesquisa em andamento para esta campanha. Aguarde ela terminar.",
+        code: "run_in_progress",
+      },
+      { status: 409 },
+    );
+  }
+  // marca rodadas travadas como falhas (não deixam a campanha bloqueada)
+  await admin
+    .from("discovery_runs")
+    .update({ status: "failed", error: "timeout", completed_at: new Date().toISOString() })
+    .eq("campaign_id", id)
+    .eq("status", "running")
+    .lte("started_at", staleCutoff);
+
+  // ── Abre a nova rodada JÁ (trava concorrência durante a derivação do perfil) ─
+  const { data: run, error: runErr } = await admin
+    .from("discovery_runs")
+    .insert({
+      company_id: ctx.company.id,
+      campaign_id: id,
+      status: "running",
+      created_by: ctx.userId,
+    })
+    .select("id")
+    .single();
+  if (runErr || !run) {
+    console.error("[campaigns/discover] run insert", runErr);
+    return NextResponse.json(
+      { error: "Não foi possível iniciar a pesquisa. Tente novamente." },
+      { status: 500 },
+    );
+  }
+  const runId = run.id;
+
+  async function failRun(message: string) {
+    await admin
+      .from("discovery_runs")
+      .update({ status: "failed", error: message, completed_at: new Date().toISOString() })
+      .eq("id", runId);
+  }
+
   const buyerProfile = await deriveBuyerProfile(
     ctx.company.id,
     productContext,
     audience,
   );
+  await admin
+    .from("discovery_runs")
+    .update({
+      buyer_profile_source: buyerProfile.source,
+      buyer_segments: buyerProfile.buyerSegments as unknown as Json,
+    })
+    .eq("id", runId);
 
   const channelRequirement: "whatsapp" | "email" | "none" =
     campaign.channel === "whatsapp"
@@ -118,37 +179,47 @@ export async function POST(
     channelRequirement,
   };
 
-  const { data: existing } = await admin
-    .from("lead_discoveries")
-    .select("dedupe_key")
-    .eq("campaign_id", id);
-  const existingKeys = new Set((existing ?? []).map((e) => e.dedupe_key));
-
   let result;
   try {
-    result = await runDiscovery({ brief, userId: ctx.userId, existingKeys });
+    result = await runDiscovery({ brief, userId: ctx.userId });
   } catch (e) {
     if (e instanceof TavilyError) {
       console.error("[campaigns/discover] tavily", e.code, e.message);
+      await failRun(`tavily:${e.code}`);
       return NextResponse.json(
         { error: tavilyErrorMessage(e.code), code: e.code },
         { status: 502 },
       );
     }
     console.error("[campaigns/discover] erro", e);
+    await failRun(String(e).slice(0, 300));
     return NextResponse.json(
-      { error: "Não foi possível concluir a busca. Tente novamente." },
+      { error: "Não foi possível concluir a busca. A pesquisa anterior continua disponível." },
       { status: 500 },
     );
   }
 
+  // ── Descobertas já aprovadas nesta campanha (carregam status entre rodadas) ─
+  const { data: approvedBefore } = await admin
+    .from("lead_discoveries")
+    .select("dedupe_key, lead_id, approved_at, approved_by")
+    .eq("campaign_id", id)
+    .eq("status", "approved");
+  const approvedByKey = new Map(
+    (approvedBefore ?? []).map((a) => [a.dedupe_key, a]),
+  );
+
   // ── Persistência ──────────────────────────────────────────────────────
   const rows = result.candidates.map((c) => {
-    const qualified = c.qualification === "high" || c.qualification === "medium";
-    const status = c.competitor ? "rejected" : qualified ? "qualified" : "discovered";
+    const prior = approvedByKey.get(c.dedupeKey);
+    const status = resolveRowStatus(c, prior ?? undefined);
     return {
       company_id: ctx.company.id,
       campaign_id: id,
+      discovery_run_id: runId,
+      lead_id: prior?.lead_id ?? null,
+      approved_at: prior?.approved_at ?? null,
+      approved_by: prior?.approved_by ?? null,
       company_name: c.companyName,
       legal_name: c.legalName,
       segment: c.segment,
@@ -192,40 +263,62 @@ export async function POST(
   if (rows.length) {
     const { data, error } = await admin
       .from("lead_discoveries")
-      .upsert(rows, { onConflict: "campaign_id,dedupe_key", ignoreDuplicates: true })
+      .upsert(rows, { onConflict: "discovery_run_id,dedupe_key", ignoreDuplicates: true })
       .select("id");
     if (error) {
       console.error("[campaigns/discover] insert", error);
+      await failRun(`insert:${error.message}`.slice(0, 300));
       return NextResponse.json(
-        { error: "A busca funcionou, mas houve falha ao salvar os resultados." },
+        { error: "A busca rodou, mas houve falha ao salvar. A pesquisa anterior continua disponível." },
         { status: 500 },
       );
     }
     inserted = data?.length ?? 0;
   }
 
+  const stats = {
+    ...runStats(result.candidates),
+    // "qualificados" da rodada = os efetivamente gravados como 'qualified'
+    // (não conta os que carregaram 'approved' de rodadas anteriores)
+    qualified: rows.filter((r) => r.status === "qualified").length,
+    discarded: result.discardedCount,
+    rawResults: result.rawCount,
+    queries: result.queries.length,
+    aiUsed: result.aiUsed,
+  };
+
+  // ── Fecha a rodada e aponta a campanha para ela ──────────────────────
+  await admin
+    .from("discovery_runs")
+    .update({
+      status: "completed",
+      completed_at: new Date().toISOString(),
+      queries_count: stats.queries,
+      raw_count: stats.rawResults,
+      found: stats.found,
+      prospectable: stats.prospectable,
+      qualified: stats.qualified,
+      competitors: stats.competitors,
+      no_whatsapp: stats.noWhatsapp,
+      discarded: stats.discarded,
+      ai_used: stats.aiUsed,
+    })
+    .eq("id", runId);
+
   await admin
     .from("campaigns")
-    .update({ last_discovery_at: new Date().toISOString() })
+    .update({
+      current_discovery_run_id: runId,
+      last_discovery_at: new Date().toISOString(),
+    })
     .eq("id", id)
     .eq("company_id", ctx.company.id);
 
   return NextResponse.json({
-    found: result.candidates.length,
+    runId,
     inserted,
-    qualified: rows.filter((r) => r.status === "qualified").length,
-    prospectable: result.candidates.filter(
-      (c) => !c.competitor && c.whatsappVerified,
-    ).length,
-    competitors: result.candidates.filter((c) => c.competitor).length,
-    noWhatsapp: result.candidates.filter(
-      (c) => !c.competitor && !c.whatsappVerified,
-    ).length,
-    discarded: result.discardedCount,
+    ...stats,
     discardReasons: result.discardReasons,
-    rawResults: result.rawCount,
-    queries: result.queries.length,
-    aiUsed: result.aiUsed,
     buyerProfileSource: buyerProfile.source,
     buyerSegments: buyerProfile.buyerSegments.slice(0, 8),
   });

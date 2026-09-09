@@ -40,6 +40,7 @@ export type Conversation = Tables<"conversations">;
 export type Message = Tables<"messages">;
 export type Campaign = Tables<"campaigns">;
 export type LeadDiscovery = Tables<"lead_discoveries">;
+export type DiscoveryRun = Tables<"discovery_runs">;
 export type Task = Tables<"tasks">;
 export type Activity = Tables<"activities">;
 export type AiAgent = Tables<"ai_agents">;

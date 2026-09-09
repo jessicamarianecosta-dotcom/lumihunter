@@ -7,7 +7,8 @@ import { findVerifiedWhatsApp } from "./whatsapp";
 import { qualify, qualificationBand, heuristicApproach, type ScoreInput } from "./score";
 import { buildCatalogGuard } from "./ai";
 import { heuristicBuyerProfile } from "./product-context";
-import type { CampaignBrief, ProductContext } from "./types";
+import { resolveRowStatus, runStats } from "./run";
+import type { CampaignBrief, DiscoveredCompany, ProductContext } from "./types";
 
 const productContext: ProductContext = {
   name: "Adesivos e rótulos personalizados",
@@ -243,6 +244,44 @@ describe("catálogo é a fonte da verdade", () => {
     const a = heuristicApproach({ companyName: "Doce Encanto", businessType: "confectionery" }, productContext);
     expect(guard(a)).toBe(true);
     expect(a.toLowerCase()).toContain("adesivos e rótulos");
+  });
+});
+
+describe("rodada de descoberta — nova pesquisa não acumula", () => {
+  const mk = (o: Partial<DiscoveredCompany>): DiscoveredCompany =>
+    ({
+      companyName: "X",
+      competitor: false,
+      whatsappVerified: false,
+      qualification: "low",
+      dedupeKey: "k",
+      ...o,
+    } as DiscoveredCompany);
+
+  it("descoberta aprovada em rodada anterior carrega status", () => {
+    expect(
+      resolveRowStatus(mk({ qualification: "low" }), {
+        lead_id: "l1", approved_at: "t", approved_by: "u",
+      }),
+    ).toBe("approved");
+  });
+  it("sem aprovação anterior: concorrente→rejected, qualificada→qualified", () => {
+    expect(resolveRowStatus(mk({ competitor: true }), undefined)).toBe("rejected");
+    expect(resolveRowStatus(mk({ qualification: "high" }), undefined)).toBe("qualified");
+    expect(resolveRowStatus(mk({ qualification: "low" }), undefined)).toBe("discovered");
+  });
+  it("runStats conta só os candidatos da rodada", () => {
+    const s = runStats([
+      mk({ whatsappVerified: true, qualification: "high" }),
+      mk({ whatsappVerified: true, qualification: "medium" }),
+      mk({ whatsappVerified: false, qualification: "low" }),
+      mk({ competitor: true }),
+    ]);
+    expect(s.found).toBe(4);
+    expect(s.prospectable).toBe(2);
+    expect(s.qualified).toBe(2);
+    expect(s.competitors).toBe(1);
+    expect(s.noWhatsapp).toBe(1);
   });
 });
 

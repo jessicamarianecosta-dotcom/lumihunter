@@ -49,29 +49,51 @@ export default async function CampanhaPage({
     .maybeSingle();
   if (!campaign) notFound();
 
-  const [{ data: targets }, { data: discoveries }, { data: products }] =
-    await Promise.all([
-      supabase
-        .from("campaign_targets")
-        .select("id, status, last_message_at, leads(id, name, city, score)")
-        .eq("campaign_id", id)
-        .order("created_at", { ascending: false })
-        .limit(300),
-      supabase
-        .from("lead_discoveries")
-        .select(
-          "id, company_name, segment, description, city, state, phone, whatsapp, email, website, instagram, source, source_url, discovery_query, score, buyer_fit_score, product_fit_score, business_fit_score, result_type, business_type, competitor, whatsapp_verified, discard_reason, qualification, qualification_reason, qualification_signals, evidence, qualified_by, recommended_approach, status, discovered_at",
-        )
-        .eq("campaign_id", id)
-        .order("score", { ascending: false, nullsFirst: false })
-        .limit(500),
-      supabase
-        .from("products")
-        .select("id, name")
-        .eq("company_id", ctx.company.id)
-        .eq("is_active", true)
-        .order("name"),
-    ]);
+  const runId = campaign.current_discovery_run_id;
+
+  const [
+    { data: targets },
+    { data: discoveries },
+    { data: products },
+    { count: approvedAllTime },
+    { data: lastRun },
+  ] = await Promise.all([
+    supabase
+      .from("campaign_targets")
+      .select("id, status, last_message_at, leads(id, name, city, score)")
+      .eq("campaign_id", id)
+      .order("created_at", { ascending: false })
+      .limit(300),
+    runId
+      ? supabase
+          .from("lead_discoveries")
+          .select(
+            "id, company_name, segment, description, city, state, phone, whatsapp, email, website, instagram, source, source_url, discovery_query, score, buyer_fit_score, product_fit_score, business_fit_score, result_type, business_type, competitor, whatsapp_verified, discard_reason, qualification, qualification_reason, qualification_signals, evidence, qualified_by, recommended_approach, status, discovered_at",
+          )
+          .eq("campaign_id", id)
+          .eq("discovery_run_id", runId)
+          .order("score", { ascending: false, nullsFirst: false })
+          .limit(500)
+      : Promise.resolve({ data: [] as never[] }),
+    supabase
+      .from("products")
+      .select("id, name")
+      .eq("company_id", ctx.company.id)
+      .eq("is_active", true)
+      .order("name"),
+    supabase
+      .from("lead_discoveries")
+      .select("id", { count: "exact", head: true })
+      .eq("campaign_id", id)
+      .eq("status", "approved"),
+    supabase
+      .from("discovery_runs")
+      .select("completed_at, error, status")
+      .eq("campaign_id", id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
 
   const rows = targets ?? [];
   const byStatus = (s: string) => rows.filter((t) => t.status === s).length;
@@ -84,7 +106,13 @@ export default async function CampanhaPage({
   const discQualified = disc.filter(
     (d) => d.status === "qualified" || d.status === "approved",
   ).length;
-  const discApproved = disc.filter((d) => d.status === "approved").length;
+  const discApproved = approvedAllTime ?? 0;
+  const lastRunLabel =
+    lastRun?.status === "failed"
+      ? "Última pesquisa falhou — mostrando a anterior."
+      : lastRun?.completed_at
+        ? `Última pesquisa: ${new Date(lastRun.completed_at).toLocaleString("pt-BR")}`
+        : null;
 
   const writable = canWrite(ctx.role);
   const regions: string[] = campaign.regions ?? [];
@@ -266,8 +294,13 @@ export default async function CampanhaPage({
 
       {/* ── Dashboard da campanha ─────────────────────────────────────── */}
       <div>
-        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Prospecção
+        <p className="mb-2 flex flex-wrap items-baseline gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Prospecção — pesquisa atual
+          {lastRunLabel && (
+            <span className="font-normal normal-case tracking-normal">
+              · {lastRunLabel}
+            </span>
+          )}
         </p>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {discoveryStats.map((s) => (
@@ -303,6 +336,7 @@ export default async function CampanhaPage({
               regions={regions.length ? regions : campaign.city ? [campaign.city] : []}
               ready={briefReady}
               configured={tavilyConfigured()}
+              hasRun={!!runId}
             />
           </CardContent>
         </Card>
