@@ -1380,6 +1380,12 @@ export type Database = {
           address: string | null
           approved_at: string | null
           approved_by: string | null
+          business_fit_score: number | null
+          business_type: string | null
+          evidence: Json
+          product_fit_score: number | null
+          result_type: string | null
+          source_quality: number | null
           campaign_id: string
           city: string | null
           company_id: string
@@ -1417,6 +1423,12 @@ export type Database = {
           address?: string | null
           approved_at?: string | null
           approved_by?: string | null
+          business_fit_score?: number | null
+          business_type?: string | null
+          evidence?: Json
+          product_fit_score?: number | null
+          result_type?: string | null
+          source_quality?: number | null
           campaign_id: string
           city?: string | null
           company_id: string
@@ -1454,6 +1466,12 @@ export type Database = {
           address?: string | null
           approved_at?: string | null
           approved_by?: string | null
+          business_fit_score?: number | null
+          business_type?: string | null
+          evidence?: Json
+          product_fit_score?: number | null
+          result_type?: string | null
+          source_quality?: number | null
           campaign_id?: string
           city?: string | null
           company_id?: string

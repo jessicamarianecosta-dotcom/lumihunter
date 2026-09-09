@@ -6,12 +6,29 @@
  * interface, sem tocar no orquestrador.
  */
 
+/** Contexto do produto REAL da campanha — a "regra de negócio" da busca. */
+export interface ProductContext {
+  name: string;
+  description: string | null;
+  category: string | null;
+  keywords: string[];
+  applications: string[];
+  useCases: string[];
+  exampleBuyers: string[];
+  idealAudience: string | null;
+  variantNames: string[];
+  /** "catalog" = veio de um produto cadastrado; "text" = só o campo livre. */
+  source: "catalog" | "text";
+}
+
 export interface CampaignBrief {
   id: string;
   companyId: string;
   name: string;
-  /** O que a empresa vende (texto livre). */
+  /** O que a empresa vende (texto livre — legado / exibição). */
   product: string;
+  /** Contexto estruturado do produto (fonte da verdade para a busca). */
+  productContext: ProductContext;
   /** Para quem ela quer vender (texto livre). */
   audience: string;
   /** Onde: cidades/regiões. */
@@ -52,6 +69,34 @@ export interface LeadSource {
   search(input: LeadSourceQuery): Promise<RawDiscoveryHit[]>;
 }
 
+/** Tipo do resultado — só `business` pode virar lead. */
+export type ResultType =
+  | "business"
+  | "article"
+  | "directory"
+  | "event"
+  | "association"
+  | "government"
+  | "community"
+  | "content"
+  | "unknown";
+
+export type BusinessType =
+  | "company"
+  | "store"
+  | "brand"
+  | "manufacturer"
+  | "bakery"
+  | "confectionery"
+  | "cosmetics_brand"
+  | "soap_brand"
+  | "candle_brand"
+  | "artisan_business"
+  | "restaurant"
+  | "service_business"
+  | "other"
+  | "unknown";
+
 /** Sinal de qualificação derivado de dados REAIS encontrados. */
 export interface QualificationSignal {
   label: string;
@@ -80,10 +125,20 @@ export interface DiscoveredCompany {
   discoveryQuery: string | null;
   raw: Record<string, unknown>;
   dedupeKey: string;
+
+  resultType: ResultType;
+  businessType: BusinessType;
+  sourceQuality: number;
+
+  /** Score final (0-100), dominado por productFit. */
   score: number;
+  productFitScore: number;
+  businessFitScore: number;
   qualification: Qualification;
   qualificationReason: string;
   qualificationSignals: QualificationSignal[];
+  /** Fatos concretos que embasam a qualificação (nunca especulação). */
+  evidence: string[];
   qualifiedBy: "heuristic" | "ai";
   recommendedApproach: string | null;
 }
@@ -93,7 +148,9 @@ export interface DiscoveryRunResult {
   rawCount: number;
   /** Resultados descartados por não serem empresas (artigos, diretórios…). */
   discardedCount: number;
-  /** Candidatos após normalização + dedupe. */
+  /** Motivos de descarte agregados (para o relatório). */
+  discardReasons: Record<string, number>;
+  /** Candidatos após normalização + dedupe + hard filter. */
   candidates: DiscoveredCompany[];
   queries: string[];
   aiUsed: boolean;

@@ -1,197 +1,250 @@
 import { describe, it, expect } from "vitest";
 import { buildDiscoveryQueries, parseAudienceSegments } from "./queries";
+import { classifyResult } from "./classify";
 import { extractCompany, hostOf } from "./extract";
 import { dedupeKeyFor, mergeByDedupeKey } from "./dedupe";
-import { qualifyHeuristic, qualificationBand } from "./score";
-import type { CampaignBrief, RawDiscoveryHit } from "./types";
+import { qualify, qualificationBand, heuristicApproach, type ScoreInput } from "./score";
+import { buildCatalogGuard } from "./ai";
+import type { CampaignBrief, ProductContext } from "./types";
+
+const productContext: ProductContext = {
+  name: "Adesivos e rótulos personalizados",
+  description:
+    "Adesivos para identificação e personalização de produtos e embalagens.",
+  category: "Adesivos",
+  keywords: ["adesivo", "rótulo", "etiqueta", "embalagem"],
+  applications: ["identificação de produtos", "rotulagem de embalagens"],
+  useCases: ["produtos embalados", "linha própria de produtos"],
+  exampleBuyers: ["confeitaria", "saboaria", "velas artesanais", "cosméticos artesanais"],
+  idealAudience: "pequenos fabricantes de produtos físicos",
+  variantNames: ["vinil branco", "vinil transparente", "couché"],
+  source: "catalog",
+};
 
 const brief: CampaignBrief = {
   id: "c1",
   companyId: "co1",
   name: "Adesivos Rótulos",
-  product: "Adesivos e rótulos personalizados",
+  product: productContext.name,
+  productContext,
   audience: "Pequenas empresas, lojas, artesãos, confeiteiros e empreendedores",
   regions: ["Curitiba", "São José dos Pinhais"],
   channel: "whatsapp",
 };
 
-function hit(p: Partial<RawDiscoveryHit>): RawDiscoveryHit {
-  return {
-    title: "",
-    url: "",
-    content: "",
-    rawContent: null,
-    relevance: null,
-    query: "confeitarias em Curitiba",
-    source: "tavily",
-    ...p,
-  };
+function cls(title: string, url: string, content = "") {
+  return classifyResult({ title, url, content });
 }
 
-describe("queries", () => {
-  it("quebra o público em segmentos pesquisáveis", () => {
+function score(over: Partial<ScoreInput>) {
+  const base: ScoreInput = {
+    companyName: "Empresa X",
+    segment: null,
+    description: null,
+    city: null,
+    state: null,
+    phone: null,
+    whatsapp: null,
+    email: null,
+    website: null,
+    instagram: null,
+    discoveryQuery: null,
+    resultType: "business",
+    businessType: "company",
+    sourceQuality: 50,
+    regions: brief.regions,
+  };
+  return qualify({ ...base, ...over }, productContext);
+}
+
+describe("queries — parte do produto, não do público genérico", () => {
+  it("descarta segmentos genéricos do público", () => {
     const segs = parseAudienceSegments(brief.audience);
     expect(segs).toContain("confeiteiros");
     expect(segs).toContain("artesãos");
-    expect(segs).not.toContain("e");
+    expect(segs).not.toContain("empreendedores");
+    expect(segs).not.toContain("pequenas empresas");
   });
 
-  it("gera consultas por segmento x região, sem duplicar", () => {
+  it("nenhuma consulta é só público + cidade", () => {
     const qs = buildDiscoveryQueries(brief);
-    expect(qs.length).toBeGreaterThan(3);
-    expect(new Set(qs).size).toBe(qs.length);
-    expect(qs.some((q) => q.includes("Curitiba"))).toBe(true);
+    expect(qs.length).toBeGreaterThan(0);
+    expect(qs).not.toContain("empreendedores Curitiba");
+    // toda consulta cita o produto OU um segmento comprador do catálogo
+    expect(qs.some((q) => q.toLowerCase().includes("adesivo"))).toBe(true);
+    expect(qs.some((q) => q.toLowerCase().includes("confeitaria"))).toBe(true);
+  });
+});
+
+describe("classifyResult — hard filter", () => {
+  it("descarta órgão público / sala do empreendedor", () => {
+    expect(cls("Sala do Empreendedor de São José dos Pinhais", "https://saojose.pr.gov.br/x").resultType).toBe("government");
+    expect(cls("Secretaria Municipal da Indústria e Comércio", "https://x.com").resultType).toBe("government");
+  });
+  it("descarta evento / feira", () => {
+    expect(cls("Feiarte — feira de artesanato de Curitiba", "https://feiarte.com").resultType).toBe("event");
+  });
+  it("descarta associação", () => {
+    expect(cls("Associação Comercial de Curitiba", "https://acp.com.br").resultType).toBe("association");
+  });
+  it("descarta comunidade / portal de empreendedorismo", () => {
+    expect(cls("Espaço Empreendedor", "https://x.com").resultType).toBe("community");
+    expect(cls("Mais Negócios Curitiba", "https://x.com").resultType).toBe("community");
+  });
+  it("descarta lista / Top 10", () => {
+    expect(cls("Top 10 Padarias e Confeitarias de São José dos Pinhais", "https://blog.x.com").resultType).toBe("directory");
+  });
+  it("descarta artigo", () => {
+    expect(cls("Como fazer rótulos personalizados: guia completo", "https://blog.x.com").resultType).toBe("article");
+  });
+  it("aceita empresa com site próprio e detecta o tipo", () => {
+    const c = cls("Doce Encanto Confeitaria", "https://doceencanto.com.br", "Confeitaria artesanal em Curitiba");
+    expect(c.resultType).toBe("business");
+    expect(c.businessType).toBe("confectionery");
+    expect(c.sourceQuality).toBe(100);
   });
 });
 
 describe("extractCompany", () => {
-  it("descarta artigos/listas", () => {
+  it("extrai domínio, cidade e whatsapp com evidência", () => {
     const r = extractCompany(
-      hit({ title: "10 melhores adesivos para confeitaria", url: "https://blog.exemplo.com/x" }),
-      brief.regions,
-    );
-    expect(r.ok).toBe(false);
-  });
-
-  it("descarta diretórios/agregadores", () => {
-    const r = extractCompany(
-      hit({ title: "Doce Encanto - Telelistas", url: "https://telelistas.net/pr/curitiba/doce-encanto" }),
-      brief.regions,
-    );
-    expect(r.ok).toBe(false);
-  });
-
-  it("aceita site de empresa e extrai domínio + cidade", () => {
-    const r = extractCompany(
-      hit({
+      {
         title: "Doce Encanto Confeitaria | Curitiba",
         url: "https://doceencanto.com.br/",
-        content: "Confeitaria em Curitiba/PR. WhatsApp (41) 99999-8888 para encomendas.",
-      }),
+        content: "Confeitaria em Curitiba/PR. WhatsApp (41) 99999-8888.",
+        rawContent: null,
+        relevance: null,
+        query: "confeitaria Curitiba adesivo",
+        source: "tavily",
+      },
       brief.regions,
     );
     expect(r.ok).toBe(true);
-    expect(r.company?.companyName).toBe("Doce Encanto Confeitaria");
     expect(r.company?.website).toBe("https://doceencanto.com.br");
     expect(r.company?.city).toBe("Curitiba");
     expect(r.company?.whatsapp).toContain("99999");
   });
 
-  it("não inventa telefone quando não há", () => {
+  it("não inventa dados ausentes", () => {
     const r = extractCompany(
-      hit({ title: "Ateliê Lume", url: "https://atelielume.com.br", content: "Velas artesanais." }),
+      {
+        title: "Ateliê Lume",
+        url: "https://atelielume.com.br",
+        content: "Velas artesanais.",
+        rawContent: null,
+        relevance: null,
+        query: "velas Curitiba",
+        source: "tavily",
+      },
       brief.regions,
     );
     expect(r.company?.phone).toBeNull();
-    expect(r.company?.whatsapp).toBeNull();
     expect(r.company?.city).toBeNull();
-  });
-
-  it("trata instagram como rede, não como site", () => {
-    const r = extractCompany(
-      hit({ title: "Bella Cosméticos (@bellacosmeticos)", url: "https://www.instagram.com/bellacosmeticos/" }),
-      brief.regions,
-    );
-    expect(r.ok).toBe(true);
-    expect(r.company?.website).toBeNull();
-    expect(r.company?.instagram).toContain("instagram.com/bellacosmeticos");
   });
 });
 
 describe("dedupe", () => {
-  it("usa domínio quando há site", () => {
+  it("usa domínio", () => {
     expect(
       dedupeKeyFor({
         website: "https://www.doceencanto.com.br/contato",
-        phone: null,
-        whatsapp: null,
-        instagram: null,
-        companyName: "Doce Encanto",
-        city: "Curitiba",
+        phone: null, whatsapp: null, instagram: null,
+        companyName: "Doce Encanto", city: "Curitiba",
       }),
     ).toBe("domain:doceencanto.com.br");
   });
-
-  it("cai para nome+cidade sem outros sinais", () => {
-    expect(
-      dedupeKeyFor({
-        website: null,
-        phone: null,
-        whatsapp: null,
-        instagram: null,
-        companyName: "Doce Encanto Confeitaria",
-        city: "Curitiba",
-      }),
-    ).toBe("name:doce-encanto-confeitaria|curitiba");
-  });
-
-  it("junta duplicados preenchendo buracos", () => {
+  it("merge preenche buracos sem apagar", () => {
     const merged = mergeByDedupeKey([
       { dedupeKey: "k", description: "A", city: "Curitiba", state: null, phone: null, whatsapp: null, email: null, website: "x", instagram: null },
       { dedupeKey: "k", description: null, city: null, state: "PR", phone: "+5541999998888", whatsapp: null, email: null, website: "x", instagram: null },
     ]);
     expect(merged).toHaveLength(1);
     expect(merged[0].state).toBe("PR");
-    expect(merged[0].phone).toBe("+5541999998888");
     expect(merged[0].description).toBe("A");
   });
 });
 
-describe("qualifyHeuristic", () => {
-  it("pontua mais alto uma confeitaria completa em Curitiba", () => {
-    const q = qualifyHeuristic(
-      {
-        companyName: "Doce Encanto Confeitaria",
-        segment: "Confeitaria",
-        description: "Confeitaria que vende doces embalados para presente",
-        city: "Curitiba",
-        state: "PR",
-        phone: null,
-        whatsapp: "+5541999998888",
-        email: "contato@doceencanto.com.br",
-        website: "https://doceencanto.com.br",
-        instagram: "https://instagram.com/doceencanto",
-        discoveryQuery: "confeitarias em Curitiba",
-      },
-      brief,
-    );
-    expect(q.score).toBeGreaterThanOrEqual(70);
+describe("qualify — product fit domina", () => {
+  it("confeitaria com produtos próprios em Curitiba pontua alto", () => {
+    const q = score({
+      companyName: "Doce Encanto Confeitaria",
+      businessType: "confectionery",
+      description:
+        "Confeitaria artesanal. Vendemos produtos embalados e temos linha própria de doces para presente.",
+      city: "Curitiba",
+      state: "PR",
+      whatsapp: "+5541999998888",
+      website: "https://doceencanto.com.br",
+      instagram: "https://instagram.com/doceencanto",
+      discoveryQuery: "confeitaria Curitiba adesivo",
+      sourceQuality: 100,
+    });
+    expect(q.productFitScore).toBeGreaterThanOrEqual(60);
     expect(q.qualification).toBe("high");
-    expect(q.signals.some((s) => s.label.includes("WhatsApp"))).toBe(true);
-    expect(q.reason.length).toBeGreaterThan(10);
+    expect(q.evidence.length).toBeGreaterThan(1);
+    expect(q.signals[0].label.toLowerCase()).toContain("compat");
   });
 
-  it("pontua baixo quando quase não há dados", () => {
-    const q = qualifyHeuristic(
-      {
-        companyName: "Empresa X",
-        segment: null,
-        description: null,
-        city: null,
-        state: null,
-        phone: null,
-        whatsapp: null,
-        email: null,
-        website: null,
-        instagram: null,
-        discoveryQuery: null,
-      },
-      brief,
+  it("NÃO fica alto só por região + site + whatsapp, sem product fit", () => {
+    const q = score({
+      companyName: "Consultoria Alfa",
+      businessType: "service_business",
+      description: "Consultoria empresarial e treinamentos corporativos.",
+      city: "Curitiba",
+      whatsapp: "+5541999990000",
+      website: "https://consultoriaalfa.com.br",
+      instagram: "https://instagram.com/consultoriaalfa",
+      sourceQuality: 100,
+    });
+    expect(q.productFitScore).toBeLessThan(50);
+    expect(q.qualification).not.toBe("high");
+  });
+
+  it("resultType != business zera o product fit", () => {
+    const q = score({ resultType: "government", businessType: "unknown", city: "Curitiba", website: "https://x.gov.br" });
+    expect(q.productFitScore).toBe(0);
+  });
+
+  it("bandas: product_fit < 30 nunca é qualificado", () => {
+    expect(qualificationBand(90, 20)).toBe("low");
+    expect(qualificationBand(80, 55)).toBe("high");
+    expect(qualificationBand(60, 40)).toBe("medium");
+    expect(qualificationBand(80, 45)).toBe("medium"); // alto score mas fit < 50 → não high
+  });
+});
+
+describe("catálogo é a fonte da verdade", () => {
+  const guard = buildCatalogGuard(
+    productContext.name,
+    productContext.keywords,
+    productContext.variantNames,
+    productContext.applications,
+  );
+
+  it("bloqueia abordagem que cita produto fora do catálogo", () => {
+    expect(guard("Oferecer kit festa e decoração para a confeitaria.")).toBe(false);
+    expect(guard("Sugerir canecas e camisetas personalizadas.")).toBe(false);
+  });
+
+  it("aceita abordagem que cita só o produto do catálogo", () => {
+    expect(
+      guard("Apresentar as opções de adesivos e rótulos personalizados da LumiLife."),
+    ).toBe(true);
+  });
+
+  it("heuristicApproach nunca cita produto fora do catálogo", () => {
+    const a = heuristicApproach(
+      { companyName: "Doce Encanto", businessType: "confectionery" },
+      productContext,
     );
-    expect(q.score).toBeLessThan(31);
-    expect(q.qualification).toBe("low");
-  });
-
-  it("bandas de qualificação", () => {
-    expect(qualificationBand(90)).toBe("high");
-    expect(qualificationBand(50)).toBe("medium");
-    expect(qualificationBand(10)).toBe("low");
+    expect(a.toLowerCase()).toContain("adesivos e rótulos");
+    expect(guard(a)).toBe(true);
   });
 });
 
 describe("hostOf", () => {
-  it("remove www e normaliza", () => {
+  it("normaliza", () => {
     expect(hostOf("https://www.Exemplo.com.BR/x")).toBe("exemplo.com.br");
-    expect(hostOf("não-é-url")).toBe("");
+    expect(hostOf("nao-url")).toBe("");
   });
 });

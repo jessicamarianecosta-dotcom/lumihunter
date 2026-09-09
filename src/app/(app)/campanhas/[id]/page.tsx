@@ -60,10 +60,10 @@ export default async function CampanhaPage({
       supabase
         .from("lead_discoveries")
         .select(
-          "id, company_name, segment, description, city, state, phone, whatsapp, email, website, instagram, source, source_url, discovery_query, score, qualification, qualification_reason, qualification_signals, qualified_by, recommended_approach, status, discovered_at",
+          "id, company_name, segment, description, city, state, phone, whatsapp, email, website, instagram, source, source_url, discovery_query, score, product_fit_score, business_fit_score, result_type, business_type, qualification, qualification_reason, qualification_signals, evidence, qualified_by, recommended_approach, status, discovered_at",
         )
         .eq("campaign_id", id)
-        .order("score", { ascending: false, nullsFirst: false })
+        .order("product_fit_score", { ascending: false, nullsFirst: false })
         .limit(500),
       supabase
         .from("products")
@@ -154,7 +154,7 @@ export default async function CampanhaPage({
       {/* ── Editar campanha ───────────────────────────────────────────── */}
       {writable && (
         <details className="rounded-xl border bg-card">
-          <summary className="flex cursor-pointer list-none items-center gap-2 p-4 text-sm font-medium">
+          <summary className="flex cursor-pointer list-none items-center gap-2 p-4 text-sm font-medium [&::-webkit-details-marker]:hidden">
             <Pencil className="size-4" /> Editar campanha
           </summary>
           <div className="border-t p-4">

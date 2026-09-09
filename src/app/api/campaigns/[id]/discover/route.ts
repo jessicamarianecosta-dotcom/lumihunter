@@ -7,14 +7,13 @@ import { enforceAiQuota } from "@/lib/limits";
 import {
   runDiscovery,
   discoverySourcesConfigured,
+  getCampaignProductContext,
   TavilyError,
   tavilyErrorMessage,
   type CampaignBrief,
 } from "@/lib/discovery";
 
 export const maxDuration = 300;
-
-const QUALIFIED_BAR = 45;
 
 export async function POST(
   _req: Request,
@@ -33,11 +32,10 @@ export async function POST(
   const quota = await enforceAiQuota(admin, ctx.company.id);
   if (quota) return quota;
 
-  // ── Campanha (isolada por empresa) ──────────────────────────────────────
   const { data: campaign } = await admin
     .from("campaigns")
     .select(
-      "id, name, channel, product_text, audience_text, regions, segment, city, goal, product_id",
+      "id, name, channel, product_id, product_text, audience_text, regions, segment, city, goal",
     )
     .eq("id", id)
     .eq("company_id", ctx.company.id)
@@ -45,18 +43,18 @@ export async function POST(
   if (!campaign)
     return NextResponse.json({ error: "campanha não encontrada" }, { status: 404 });
 
-  // produto: texto livre > produto do catálogo > objetivo
-  let product = campaign.product_text?.trim() || "";
-  if (!product && campaign.product_id) {
-    const { data: p } = await admin
-      .from("products")
-      .select("name, description")
-      .eq("id", campaign.product_id)
-      .eq("company_id", ctx.company.id)
-      .maybeSingle();
-    if (p) product = [p.name, p.description].filter(Boolean).join(" — ");
+  // ── Produto real da campanha = regra de negócio da busca ───────────────
+  const productContext = await getCampaignProductContext(admin, ctx.company.id, campaign);
+  if (!productContext) {
+    return NextResponse.json(
+      {
+        error:
+          "Defina o produto ou serviço que deseja prospectar (no catálogo ou no campo de texto) antes de procurar leads.",
+        code: "no_product",
+      },
+      { status: 400 },
+    );
   }
-  if (!product) product = campaign.goal?.trim() || "";
 
   const audience = campaign.audience_text?.trim() || campaign.segment?.trim() || "";
   const regions = (
@@ -70,13 +68,12 @@ export async function POST(
     .filter(Boolean);
 
   const missing: string[] = [];
-  if (!product) missing.push("produto/serviço");
   if (!audience) missing.push("público-alvo");
   if (regions.length === 0) missing.push("região");
   if (missing.length) {
     return NextResponse.json(
       {
-        error: `Antes de buscar, defina ${missing.join(", ")} nesta campanha.`,
+        error: `Antes de buscar, defina ${missing.join(" e ")} nesta campanha.`,
         code: "campaign_incomplete",
       },
       { status: 400 },
@@ -98,20 +95,19 @@ export async function POST(
     id: campaign.id,
     companyId: ctx.company.id,
     name: campaign.name,
-    product,
+    product: productContext.name,
+    productContext,
     audience,
     regions,
     channel: campaign.channel,
   };
 
-  // ── Chaves de dedupe já existentes nesta campanha ──────────────────────
   const { data: existing } = await admin
     .from("lead_discoveries")
     .select("dedupe_key")
     .eq("campaign_id", id);
   const existingKeys = new Set((existing ?? []).map((e) => e.dedupe_key));
 
-  // ── Descoberta ────────────────────────────────────────────────────────
   let result;
   try {
     result = await runDiscovery({ brief, userId: ctx.userId, existingKeys });
@@ -130,36 +126,47 @@ export async function POST(
     );
   }
 
-  // ── Persistência em lead_discoveries ───────────────────────────────────
-  const rows = result.candidates.map((c) => ({
-    company_id: ctx.company.id,
-    campaign_id: id,
-    company_name: c.companyName,
-    legal_name: c.legalName,
-    segment: c.segment,
-    description: c.description,
-    city: c.city,
-    state: c.state,
-    country: c.country,
-    address: c.address,
-    phone: c.phone,
-    whatsapp: c.whatsapp,
-    email: c.email,
-    website: c.website,
-    instagram: c.instagram,
-    source: c.source,
-    source_url: c.sourceUrl,
-    discovery_query: c.discoveryQuery,
-    raw: c.raw as unknown as Json,
-    dedupe_key: c.dedupeKey,
-    score: c.score,
-    qualification: c.qualification,
-    qualification_reason: c.qualificationReason,
-    qualification_signals: c.qualificationSignals as unknown as Json,
-    qualified_by: c.qualifiedBy,
-    recommended_approach: c.recommendedApproach,
-    status: c.score >= QUALIFIED_BAR ? "qualified" : "discovered",
-  }));
+  // ── Persistência ──────────────────────────────────────────────────────
+  const rows = result.candidates.map((c) => {
+    const qualified =
+      (c.qualification === "high" || c.qualification === "medium") &&
+      c.productFitScore >= 30;
+    return {
+      company_id: ctx.company.id,
+      campaign_id: id,
+      company_name: c.companyName,
+      legal_name: c.legalName,
+      segment: c.segment,
+      description: c.description,
+      city: c.city,
+      state: c.state,
+      country: c.country,
+      address: c.address,
+      phone: c.phone,
+      whatsapp: c.whatsapp,
+      email: c.email,
+      website: c.website,
+      instagram: c.instagram,
+      source: c.source,
+      source_url: c.sourceUrl,
+      discovery_query: c.discoveryQuery,
+      raw: c.raw as unknown as Json,
+      dedupe_key: c.dedupeKey,
+      result_type: c.resultType,
+      business_type: c.businessType,
+      source_quality: c.sourceQuality,
+      score: c.score,
+      product_fit_score: c.productFitScore,
+      business_fit_score: c.businessFitScore,
+      qualification: c.qualification,
+      qualification_reason: c.qualificationReason,
+      qualification_signals: c.qualificationSignals as unknown as Json,
+      evidence: c.evidence as unknown as Json,
+      qualified_by: c.qualifiedBy,
+      recommended_approach: c.recommendedApproach,
+      status: qualified ? "qualified" : "discovered",
+    };
+  });
 
   let inserted = 0;
   if (rows.length) {
@@ -188,8 +195,10 @@ export async function POST(
     inserted,
     qualified: rows.filter((r) => r.status === "qualified").length,
     discarded: result.discardedCount,
+    discardReasons: result.discardReasons,
     rawResults: result.rawCount,
     queries: result.queries.length,
     aiUsed: result.aiUsed,
+    productSource: productContext.source,
   });
 }

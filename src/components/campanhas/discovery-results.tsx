@@ -31,9 +31,14 @@ export interface DiscoveryRow {
   source_url: string | null;
   discovery_query: string | null;
   score: number | null;
+  product_fit_score: number | null;
+  business_fit_score: number | null;
+  result_type: string | null;
+  business_type: string | null;
   qualification: string | null;
   qualification_reason: string | null;
   qualification_signals: { label: string; detail?: string }[];
+  evidence: string[];
   qualified_by: string | null;
   recommended_approach: string | null;
   status: string;
@@ -41,6 +46,7 @@ export interface DiscoveryRow {
 }
 
 type Filter =
+  | "qualified"
   | "all"
   | "high"
   | "medium"
@@ -54,9 +60,10 @@ type Filter =
   | "rejected";
 
 const FILTERS: { key: Filter; label: string }[] = [
-  { key: "all", label: "Todos" },
+  { key: "qualified", label: "Qualificados" },
   { key: "high", label: "Alto potencial" },
   { key: "medium", label: "Médio potencial" },
+  { key: "all", label: "Todos" },
   { key: "low", label: "Baixo potencial" },
   { key: "whatsapp", label: "Com WhatsApp" },
   { key: "phone", label: "Com telefone" },
@@ -83,6 +90,24 @@ function statusBadge(s: string) {
   return <Badge variant="secondary">Encontrado</Badge>;
 }
 
+function FitBar({ label, value }: { label: string; value: number | null }) {
+  const v = Math.max(0, Math.min(100, value ?? 0));
+  const color =
+    v >= 70 ? "bg-emerald-500" : v >= 45 ? "bg-amber-500" : "bg-red-400";
+  return (
+    <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+      <span className="w-20 shrink-0">{label}</span>
+      <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-secondary">
+        <span
+          className={`block h-full rounded-full ${color}`}
+          style={{ width: `${v}%` }}
+        />
+      </span>
+      <span className="w-7 shrink-0 text-right tabular-nums">{value ?? "—"}</span>
+    </div>
+  );
+}
+
 export function DiscoveryResults({
   campaignId,
   rows,
@@ -91,7 +116,7 @@ export function DiscoveryResults({
   rows: DiscoveryRow[];
 }) {
   const router = useRouter();
-  const [filter, setFilter] = useState<Filter>("all");
+  const [filter, setFilter] = useState<Filter>("qualified");
   const [region, setRegion] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -110,6 +135,8 @@ export function DiscoveryResults({
     return rows.filter((r) => {
       if (region && r.city !== region) return false;
       switch (filter) {
+        case "qualified":
+          return r.status === "qualified" || r.status === "approved";
         case "high":
           return r.qualification === "high";
         case "medium":
@@ -345,6 +372,11 @@ export function DiscoveryResults({
                     )}
                   </div>
 
+                  <div className="mt-2 space-y-1">
+                    <FitBar label="Product fit" value={r.product_fit_score} />
+                    <FitBar label="Business fit" value={r.business_fit_score} />
+                  </div>
+
                   {r.qualification_signals.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-1">
                       {r.qualification_signals.slice(0, isOpen ? 99 : 3).map((s, i) => (
@@ -412,9 +444,30 @@ export function DiscoveryResults({
                       {r.qualification_reason && (
                         <p>
                           <span className="font-medium text-foreground">
-                            Por que foi qualificado:{" "}
+                            Por que é um bom lead:{" "}
                           </span>
                           {r.qualification_reason}
+                        </p>
+                      )}
+                      {r.evidence?.length > 0 && (
+                        <div>
+                          <span className="font-medium text-foreground">
+                            Evidências:
+                          </span>
+                          <ul className="ml-4 list-disc">
+                            {r.evidence.map((e, i) => (
+                              <li key={i}>{e}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {(r.business_type || r.result_type) && (
+                        <p>
+                          <span className="font-medium text-foreground">
+                            Classificação:{" "}
+                          </span>
+                          {r.result_type ?? "—"}
+                          {r.business_type ? ` · ${r.business_type}` : ""}
                         </p>
                       )}
                       {r.description && (
