@@ -127,7 +127,7 @@ export default async function CampanhaPage({
       ? supabase
           .from("lead_discoveries")
           .select(
-            "id, company_name, segment, description, city, state, phone, whatsapp, email, website, instagram, source, source_url, discovery_query, score, buyer_fit_score, product_fit_score, business_fit_score, result_type, business_type, individual_business, competitor, whatsapp_verified, whatsapp_evidence, product_match_name, product_match_reason, discard_reason, qualification, qualification_reason, qualification_signals, evidence, qualified_by, recommended_approach, status, discovered_at",
+            "id, lead_id, company_name, segment, description, city, state, phone, whatsapp, email, website, instagram, source, source_url, discovery_query, score, buyer_fit_score, product_fit_score, business_fit_score, result_type, business_type, individual_business, competitor, whatsapp_verified, whatsapp_evidence, product_match_name, product_match_reason, discard_reason, qualification, qualification_reason, qualification_signals, evidence, qualified_by, recommended_approach, status, discovered_at",
           )
           .eq("campaign_id", id)
           .eq("discovery_run_id", runId)
@@ -183,7 +183,6 @@ export default async function CampanhaPage({
   const rows = targets ?? [];
 
   const disc = (discoveries ?? []) as unknown as DiscoveryRow[];
-  const discScreened = disc.length;
   const discLeads = disc.filter(
     (d) => d.status === "qualified" || d.status === "approved",
   ).length;
@@ -207,12 +206,6 @@ export default async function CampanhaPage({
   const regionLabel = regions.join(", ") || campaign.city || null;
   const briefReady = !!productLabel && !!audienceLabel && (regions.length > 0 || !!campaign.city);
 
-  const discoveryStats = [
-    { k: "🔥 Leads de alto potencial", v: discLeads },
-    { k: "Já adicionados", v: discApproved },
-    { k: "Descartados", v: discDiscarded },
-    { k: "Analisados", v: discScreened },
-  ];
   // ── Abordagem (fila de WhatsApp) ──────────────────────────────────────
   type QueueRaw = {
     id: string;
@@ -253,14 +246,36 @@ export default async function CampanhaPage({
     failure_reason: q.failure_reason,
   }));
 
+  // estado real de acompanhamento por lead (para a lista de Oportunidades)
+  const outreachStateByLead = new Map<string, string>();
+  for (const q of queue) {
+    if (q.lead_id) outreachStateByLead.set(q.lead_id, q.status);
+  }
+
+  const sentCount = qBy("sent") + qBy("delivered") + qBy("read") + qBy("replied");
+  const withWa = disc.filter((d) => d.whatsapp_verified && !d.competitor).length;
+
+  // Prospecção — números REAIS (não "aprovado")
+  const discoveryStats = [
+    { k: "🔥 Oportunidades qualificadas", v: discLeads, href: null },
+    { k: "📱 Com WhatsApp confirmado", v: withWa, href: null },
+    { k: "📤 Abordadas", v: sentCount, href: "/conversas?filter=sent" },
+    { k: "💬 Responderam", v: qBy("replied"), href: "/conversas?filter=replied" },
+    { k: "⏳ Aguardando resposta", v: Math.max(0, sentCount - qBy("replied")), href: "/conversas?filter=waiting" },
+    { k: "❌ Falharam", v: qBy("failed"), href: "/conversas?filter=failed" },
+    { k: "🚫 Opt-out", v: qBy("opted_out"), href: "/conversas?filter=opted_out" },
+    { k: "🗑 Descartadas (auditoria)", v: discDiscarded, href: null },
+    { k: "CRM (todas as rodadas)", v: discApproved, href: null },
+  ];
+
   const outreachStats = [
-    { k: "Na fila", v: qBy("draft") + qBy("ready") + qBy("scheduled") },
-    { k: "Enviados", v: qBy("sent") + qBy("delivered") + qBy("read") + qBy("replied") },
-    { k: "Entregues", v: qBy("delivered") + qBy("read") },
-    { k: "Lidos", v: qBy("read") },
-    { k: "Responderam", v: qBy("replied") },
-    { k: "Opt-outs", v: qBy("opted_out") },
-    { k: "Falhas", v: qBy("failed") },
+    { k: "🟡 Na fila", v: qBy("draft") + qBy("ready") + qBy("scheduled") + qBy("sending"), href: "/conversas?filter=queued" },
+    { k: "✓ Enviados", v: sentCount, href: "/conversas?filter=sent" },
+    { k: "✓✓ Entregues", v: qBy("delivered") + qBy("read"), href: "/conversas?filter=delivered" },
+    { k: "👁 Lidos", v: qBy("read"), href: "/conversas?filter=read" },
+    { k: "💬 Responderam", v: qBy("replied"), href: "/conversas?filter=replied" },
+    { k: "🚫 Opt-outs", v: qBy("opted_out"), href: "/conversas?filter=opted_out" },
+    { k: "🔴 Falhas", v: qBy("failed"), href: "/conversas?filter=failed" },
   ];
 
   const approvedTargets = rows.filter((t) =>
@@ -452,26 +467,38 @@ export default async function CampanhaPage({
           )}
         </p>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {discoveryStats.map((s) => (
-            <Card key={s.k}>
+          {discoveryStats.map((s) => {
+            const inner = (
               <CardContent className="p-4">
                 <p className="text-xl font-semibold tabular-nums">{s.v}</p>
                 <p className="text-xs text-muted-foreground">{s.k}</p>
               </CardContent>
-            </Card>
-          ))}
+            );
+            return s.href ? (
+              <Link key={s.k} href={s.href} className="block">
+                <Card className="transition-colors hover:border-accent">{inner}</Card>
+              </Link>
+            ) : (
+              <Card key={s.k}>{inner}</Card>
+            );
+          })}
         </div>
         <p className="mb-2 mt-4 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Abordagem — fila de WhatsApp
+          Abordagem — acompanhamento em{" "}
+          <Link href="/conversas" className="text-accent hover:underline">
+            Conversas
+          </Link>
         </p>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
           {outreachStats.map((s) => (
-            <Card key={s.k}>
-              <CardContent className="p-4">
-                <p className="text-xl font-semibold tabular-nums">{s.v}</p>
-                <p className="text-xs text-muted-foreground">{s.k}</p>
-              </CardContent>
-            </Card>
+            <Link key={s.k} href={s.href} className="block">
+              <Card className="transition-colors hover:border-accent">
+                <CardContent className="p-4">
+                  <p className="text-xl font-semibold tabular-nums">{s.v}</p>
+                  <p className="text-xs text-muted-foreground">{s.k}</p>
+                </CardContent>
+              </Card>
+            </Link>
           ))}
         </div>
       </div>
@@ -512,6 +539,7 @@ export default async function CampanhaPage({
             campaignId={id}
             rows={disc}
             automatic={campaign.outreach_automatic}
+            outreachStateByLead={Object.fromEntries(outreachStateByLead)}
           />
         </CardContent>
       </Card>

@@ -13,6 +13,11 @@ import {
   type AutoOutreachInput,
 } from "./eligibility";
 import { looksLikeOptOut } from "./optout";
+import {
+  resolveOutreachState,
+  queueStatusToState,
+  outreachStateLabel,
+} from "./conversation";
 
 describe("renderTemplate — não inventa, limpa variável vazia", () => {
   it("substitui variáveis presentes", () => {
@@ -237,6 +242,51 @@ describe("classifyWhatsAppError — retry só p/ transitório", () => {
     const r = classifyWhatsAppError("invalid recipient / not a whatsapp number");
     expect(r.transient).toBe(false);
     expect(r.invalidNumber).toBe(true);
+  });
+});
+
+describe("Conversas — estado do WhatsApp nunca é simulado nem regride", () => {
+  it("queueStatusToState mapeia a fila para acompanhamento", () => {
+    expect(queueStatusToState("ready")).toBe("queued");
+    expect(queueStatusToState("draft")).toBe("queued");
+    expect(queueStatusToState("sent")).toBe("sent");
+    expect(queueStatusToState("delivered")).toBe("delivered");
+    expect(queueStatusToState("read")).toBe("read");
+    expect(queueStatusToState("replied")).toBe("replied");
+    expect(queueStatusToState("failed")).toBe("failed");
+    expect(queueStatusToState("skipped")).toBeNull();
+    expect(queueStatusToState("cancelled")).toBeNull();
+  });
+
+  it("avança na ordem certa", () => {
+    expect(resolveOutreachState(null, "queued")).toBe("queued");
+    expect(resolveOutreachState("queued", "sent")).toBe("sent");
+    expect(resolveOutreachState("sent", "delivered")).toBe("delivered");
+    expect(resolveOutreachState("delivered", "read")).toBe("read");
+  });
+
+  it("não regride: webhook atrasado não desfaz um estado melhor", () => {
+    expect(resolveOutreachState("read", "delivered")).toBeNull();
+    expect(resolveOutreachState("read", "sent")).toBeNull();
+    expect(resolveOutreachState("delivered", "queued")).toBeNull();
+  });
+
+  it("replied e opted_out sempre vencem; failed não sobrescreve entregue/lido", () => {
+    expect(resolveOutreachState("read", "replied")).toBe("replied");
+    expect(resolveOutreachState("sent", "opted_out")).toBe("opted_out");
+    expect(resolveOutreachState("read", "failed")).toBeNull();
+    expect(resolveOutreachState("sent", "failed")).toBe("failed");
+    expect(resolveOutreachState("replied", "replied")).toBeNull();
+  });
+
+  it("'WhatsApp ✓' (número existe) não é 'Enviado'", () => {
+    // um lead com whatsapp_verified mas sem envio não tem outreach_state
+    expect(outreachStateLabel(null).label).toBe("—");
+    expect(outreachStateLabel("queued").label).toBe("Na fila");
+    expect(outreachStateLabel("sent").label).toBe("Enviado");
+    expect(outreachStateLabel("delivered").label).toBe("Entregue");
+    expect(outreachStateLabel("read").label).toBe("Lido");
+    expect(outreachStateLabel("replied").label).toBe("Respondeu");
   });
 });
 

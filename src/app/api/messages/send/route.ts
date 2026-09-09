@@ -8,6 +8,7 @@ import { getIntegrationConfig, type ResendConfig } from "@/lib/integrations/conf
 import { normalizePhoneBR } from "@/lib/utils";
 import { enforceRateLimit, LIMITS } from "@/lib/ratelimit";
 import { enforceMessageQuota } from "@/lib/limits";
+import { markConversationHandled } from "@/lib/outreach/conversation";
 
 const Body = z.object({
   leadId: z.string().uuid(),
@@ -124,6 +125,18 @@ export async function POST(req: Request) {
       .from("leads")
       .update({ status: "contacted" })
       .eq("id", lead.id);
+  }
+
+  // resposta manual de um humano → a conversa deixa de "precisar de atendimento"
+  if (result.ok) {
+    await admin
+      .from("conversations")
+      .update({ last_message_preview: body.slice(0, 160), last_message_at: new Date().toISOString() })
+      .eq("id", conversation.id);
+    await markConversationHandled(admin, {
+      conversationId: conversation.id,
+      userId: ctx.userId,
+    });
   }
 
   return NextResponse.json({

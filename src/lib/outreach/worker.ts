@@ -11,6 +11,7 @@ import { normalizePhoneBR } from "@/lib/utils";
 import { sendMessage, sendDocument } from "@/lib/whatsapp/service";
 import { resolveCampaignCatalogPdf } from "./catalog";
 import { isBlocked } from "./optout";
+import { markConversationOutreach } from "./conversation";
 import { checkEligibility, classifyWhatsAppError } from "./eligibility";
 import {
   withinWindow,
@@ -212,6 +213,12 @@ export async function sendNextForCampaign(
         failure_reason: elig.reason,
       })
       .eq("id", item.id);
+    if (elig.code === "opted_out")
+      await markConversationOutreach(admin, {
+        companyId: campaign.company_id,
+        leadId: item.lead_id,
+        state: "opted_out",
+      });
     return { kind: "skipped", reason: elig.reason ?? "inelegível", remaining: await remaining() };
   }
 
@@ -237,6 +244,14 @@ export async function sendNextForCampaign(
     conv = created;
   }
 
+  await markConversationOutreach(admin, {
+    companyId: campaign.company_id,
+    conversationId: conv!.id,
+    leadId: item.lead_id,
+    campaignId: campaignId,
+    state: "sending",
+  });
+
   // ── Envia o texto ────────────────────────────────────────────────────
   const body = item.message_body!.trim();
   const textResult = await sendMessage(campaign.company_id, { to: to!, body });
@@ -259,6 +274,13 @@ export async function sendNextForCampaign(
         outreach_consecutive_errors: (campaign.outreach_consecutive_errors ?? 0) + 1,
       })
       .eq("id", campaignId);
+    if (!canRetry)
+      await markConversationOutreach(admin, {
+        companyId: campaign.company_id,
+        conversationId: conv!.id,
+        leadId: item.lead_id,
+        state: "failed",
+      });
     return {
       kind: "failed",
       reason: textResult.error ?? "falha no envio",
@@ -335,6 +357,17 @@ export async function sendNextForCampaign(
     .from("campaign_targets")
     .update({ status: "sent", last_message_at: now.toISOString() })
     .eq("id", item.campaign_target_id);
+
+  await markConversationOutreach(admin, {
+    companyId: campaign.company_id,
+    conversationId: conv!.id,
+    leadId: item.lead_id,
+    campaignId: campaignId,
+    state: "sent",
+    at: now.toISOString(),
+    preview: body,
+    catalogSent: !!catalogMessageId,
+  });
 
   if (lead && (lead.status === "new" || lead.status === "qualified")) {
     await admin.from("leads").update({ status: "contacted" }).eq("id", lead.id);

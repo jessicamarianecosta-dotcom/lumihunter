@@ -20,6 +20,7 @@ import { mentionsCompanyName } from "./vars";
 import { resolveCampaignCatalogPdf } from "./catalog";
 import { isBlocked } from "./optout";
 import { validateProspectForAutomaticOutreach } from "./eligibility";
+import { markConversationOutreach } from "./conversation";
 
 type Admin = SupabaseClient<Database>;
 type Discovery = Database["public"]["Tables"]["lead_discoveries"]["Row"];
@@ -405,6 +406,19 @@ export async function enqueueOutreach(
       console.error("[promote] enqueue insert", error);
       return { ...result, enqueued: 0 };
     }
+  }
+
+  // cria a conversa "Na fila" para cada abordagem enfileirada — ela já aparece
+  // em Conversas com estado claro (não finge que foi enviada)
+  for (const r of rows) {
+    if (r.status !== "ready" && r.status !== "draft") continue;
+    await markConversationOutreach(admin, {
+      companyId: args.companyId,
+      leadId: r.lead_id!,
+      campaignId: campaign.id,
+      state: "queued",
+      preview: r.message_body ?? null,
+    });
   }
 
   return result;

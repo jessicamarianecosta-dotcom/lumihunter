@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { tryGetContext, canWrite } from "@/lib/auth/context";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { markConversationOutreach } from "@/lib/outreach/conversation";
 
 const Body = z.object({
   ids: z.array(z.string().uuid()).optional(),
@@ -34,9 +35,20 @@ export async function POST(
   else if (!parsed.data.all)
     return NextResponse.json({ error: "informe ids ou all=true" }, { status: 400 });
 
-  const { data, error } = await q.select("id");
+  const { data, error } = await q.select("id, lead_id, message_body");
   if (error)
     return NextResponse.json({ error: "falha ao aprovar mensagens" }, { status: 500 });
+
+  // cada mensagem aprovada → conversa "Na fila" em Conversas
+  for (const row of data ?? []) {
+    await markConversationOutreach(admin, {
+      companyId: ctx.company.id,
+      leadId: row.lead_id,
+      campaignId: id,
+      state: "queued",
+      preview: row.message_body,
+    });
+  }
 
   return NextResponse.json({ approved: data?.length ?? 0 });
 }

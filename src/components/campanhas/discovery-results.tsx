@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 
 export interface DiscoveryRow {
   id: string;
+  lead_id: string | null;
   company_name: string;
   segment: string | null;
   description: string | null;
@@ -71,9 +72,31 @@ function qualLabel(q: string | null): { text: string; variant: "success" | "warn
   return { text: "—", variant: "secondary" };
 }
 
-function statusBadge(s: string) {
-  if (s === "approved") return <Badge variant="success">Aprovado</Badge>;
-  if (s === "rejected") return <Badge variant="danger">Rejeitado</Badge>;
+const OUTREACH_BADGE: Record<
+  string,
+  { label: string; variant: "success" | "warning" | "danger" | "secondary" | "default" }
+> = {
+  draft: { label: "🟡 Na fila", variant: "warning" },
+  ready: { label: "🟡 Na fila", variant: "warning" },
+  scheduled: { label: "🟡 Na fila", variant: "warning" },
+  sending: { label: "🔵 Enviando", variant: "default" },
+  sent: { label: "✓ Enviado", variant: "default" },
+  delivered: { label: "✓✓ Entregue", variant: "success" },
+  read: { label: "👁 Lido", variant: "success" },
+  replied: { label: "💬 Respondeu", variant: "default" },
+  failed: { label: "🔴 Falhou", variant: "danger" },
+  opted_out: { label: "🚫 Opt-out", variant: "danger" },
+  skipped: { label: "Descartado no envio", variant: "secondary" },
+};
+
+function statusBadge(s: string, outreachState?: string) {
+  // se já entrou no fluxo de envio, mostra o estado REAL do WhatsApp
+  if (outreachState && OUTREACH_BADGE[outreachState]) {
+    const o = OUTREACH_BADGE[outreachState];
+    return <Badge variant={o.variant}>{o.label}</Badge>;
+  }
+  if (s === "approved") return <Badge variant="secondary">Pronto p/ abordagem</Badge>;
+  if (s === "rejected") return <Badge variant="danger">Descartado</Badge>;
   if (s === "qualified") return <Badge variant="secondary">Qualificado</Badge>;
   return <Badge variant="secondary">Encontrado</Badge>;
 }
@@ -100,11 +123,14 @@ export function DiscoveryResults({
   campaignId,
   rows,
   automatic = false,
+  outreachStateByLead = {},
 }: {
   campaignId: string;
   rows: DiscoveryRow[];
   /** modo automático: sem aprovação manual — a lista é só acompanhamento. */
   automatic?: boolean;
+  /** lead_id → status na outreach_queue (estado real do WhatsApp). */
+  outreachStateByLead?: Record<string, string>;
 }) {
   const router = useRouter();
   const [filter, setFilter] = useState<Filter>("qualified");
@@ -329,7 +355,10 @@ export function DiscoveryResults({
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">{r.company_name}</span>
-                    {statusBadge(r.status)}
+                    {statusBadge(
+                      r.status,
+                      r.lead_id ? outreachStateByLead[r.lead_id] : undefined,
+                    )}
                   </div>
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     {r.segment ?? "segmento não identificado"}

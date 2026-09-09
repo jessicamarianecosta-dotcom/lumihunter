@@ -5,7 +5,13 @@ import { usePathname } from "next/navigation";
 import { NAV_ITEMS } from "./nav-items";
 import { cn } from "@/lib/utils";
 
-export function NavList({ onNavigate }: { onNavigate?: () => void }) {
+export function NavList({
+  onNavigate,
+  badges,
+}: {
+  onNavigate?: () => void;
+  badges?: Record<string, number>;
+}) {
   const pathname = usePathname();
   return (
     <nav className="flex-1 space-y-0.5 overflow-y-auto p-2">
@@ -13,6 +19,7 @@ export function NavList({ onNavigate }: { onNavigate?: () => void }) {
         const active =
           pathname === item.href ||
           (item.href !== "/app" && pathname.startsWith(item.href));
+        const badge = badges?.[item.href] ?? 0;
         return (
           <Link
             key={item.href}
@@ -27,7 +34,12 @@ export function NavList({ onNavigate }: { onNavigate?: () => void }) {
             )}
           >
             <item.icon className="size-4 shrink-0" />
-            {item.label}
+            <span className="flex-1">{item.label}</span>
+            {badge > 0 && (
+              <span className="rounded-full bg-red-500 px-1.5 text-[11px] font-semibold text-white">
+                {badge}
+              </span>
+            )}
           </Link>
         );
       })}
@@ -35,7 +47,7 @@ export function NavList({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
-export function Sidebar() {
+export function Sidebar({ badges }: { badges?: Record<string, number> }) {
   return (
     <aside className="hidden w-60 shrink-0 flex-col border-r bg-card lg:flex">
       <div className="flex h-14 items-center gap-2 border-b px-4 font-semibold">
@@ -44,7 +56,7 @@ export function Sidebar() {
         </span>
         LumiHunter AI
       </div>
-      <NavList />
+      <NavList badges={badges} />
     </aside>
   );
 }

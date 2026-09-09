@@ -21,6 +21,16 @@ interface Msg {
   created_at: string;
 }
 
+const MSG_STATUS_LABEL: Record<string, string> = {
+  queued: "🟡 na fila",
+  sent: "✓ enviado",
+  delivered: "✓✓ entregue",
+  read: "✓✓ lido",
+  failed: "🔴 falhou",
+  bounced: "🔴 falhou",
+  received: "recebido",
+};
+
 export function ConversationThread({
   conversationId,
   leadId,
@@ -93,8 +103,10 @@ export function ConversationThread({
           >
             <p className="whitespace-pre-wrap">{m.body}</p>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              {m.direction === "outbound" ? "Enviado" : "Recebido"} ·{" "}
-              {new Date(m.created_at).toLocaleString("pt-BR")} · {m.status}
+              {new Date(m.created_at).toLocaleString("pt-BR")}
+              {m.direction === "outbound"
+                ? ` · ${MSG_STATUS_LABEL[m.status] ?? m.status}`
+                : ""}
             </p>
           </div>
         ))}

@@ -7,6 +7,10 @@ import {
   verifyIncomingWebhookSignature,
 } from "@/lib/whatsapp/service";
 import { looksLikeOptOut, recordOptOut } from "@/lib/outreach/optout";
+import {
+  markConversationOutreach,
+  queueStatusToState,
+} from "@/lib/outreach/conversation";
 
 const OUTREACH_STATUS_COLUMN: Record<string, string> = {
   delivered: "delivered_at",
@@ -67,10 +71,18 @@ export async function POST(req: NextRequest) {
 
   // ── Atualizações de status (entregue/lido/falhou) ────────────────────────
   for (const s of statuses) {
-    const { error } = await admin
+    const ts = new Date(Number(s.timestamp) * 1000 || Date.now()).toISOString();
+    const tsPatch =
+      s.status === "delivered"
+        ? { delivered_at: ts }
+        : s.status === "read"
+          ? { read_at: ts }
+          : {};
+    const { data: updatedMsgs, error } = await admin
       .from("messages")
-      .update({ status: s.status })
-      .eq("provider_message_id", s.providerMessageId);
+      .update({ status: s.status, ...tsPatch })
+      .eq("provider_message_id", s.providerMessageId)
+      .select("conversation_id, lead_id, company_id");
     if (error)
       console.error(
         `[whatsapp/webhook] falha ao atualizar status ${s.status}: ${error.message}`,
@@ -79,7 +91,6 @@ export async function POST(req: NextRequest) {
     // espelha o status na fila de prospecção (Fase 2)
     const tsCol = OUTREACH_STATUS_COLUMN[s.status];
     if (tsCol) {
-      const ts = new Date(Number(s.timestamp) * 1000 || Date.now()).toISOString();
       const patch =
         tsCol === "delivered_at"
           ? { status: s.status, delivered_at: ts }
@@ -91,6 +102,19 @@ export async function POST(req: NextRequest) {
         .update(patch)
         .eq("provider_message_id", s.providerMessageId)
         .in("status", ["sent", "delivered"]);
+    }
+
+    // espelha na conversa (acompanhamento real — nunca simulado)
+    const convState = queueStatusToState(s.status);
+    const m = updatedMsgs?.[0];
+    if (convState && m?.conversation_id) {
+      await markConversationOutreach(admin, {
+        companyId: m.company_id,
+        conversationId: m.conversation_id,
+        leadId: m.lead_id,
+        state: convState,
+        at: ts,
+      });
     }
   }
 
@@ -218,8 +242,20 @@ export async function POST(req: NextRequest) {
       .eq("lead_id", lead.id)
       .not("status", "in", "(replied,opted_out)");
 
+    const optedOut = looksLikeOptOut(msg.text);
+
+    // a conversa passa a "precisa de atendimento humano" (ou opt-out)
+    await markConversationOutreach(admin, {
+      companyId,
+      conversationId: conversation.id,
+      leadId: lead.id,
+      state: optedOut ? "opted_out" : "replied",
+      at: new Date(Number(msg.timestamp) * 1000 || Date.now()).toISOString(),
+      preview: msg.text,
+    });
+
     // opt-out explícito → bloqueio definitivo (vale para qualquer campanha)
-    if (looksLikeOptOut(msg.text)) {
+    if (optedOut) {
       await recordOptOut(admin, {
         companyId,
         leadId: lead.id,

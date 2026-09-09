@@ -6,7 +6,10 @@ import { getAppContext } from "@/lib/auth/context";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { ConversationThread } from "@/components/conversas/thread";
+import { outreachStateLabel } from "@/lib/outreach/conversation";
+import { assumeConversation } from "../actions";
 
 export const metadata: Metadata = { title: "Conversa" };
 
@@ -41,6 +44,17 @@ export default async function ConversaPage({
     .eq("conversation_id", id)
     .order("created_at", { ascending: true });
 
+  const campaignName = conv.outreach_campaign_id
+    ? (
+        await supabase
+          .from("campaigns")
+          .select("name")
+          .eq("id", conv.outreach_campaign_id)
+          .maybeSingle()
+      ).data?.name ?? null
+    : null;
+  const st = outreachStateLabel(conv.outreach_state);
+
   // zera não lidas
   if (conv.unread_count > 0) {
     await supabase.from("conversations").update({ unread_count: 0 }).eq("id", id);
@@ -57,13 +71,28 @@ export default async function ConversaPage({
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-xl font-semibold">
-            {lead?.name ?? "Lead"}{" "}
+          <h1 className="flex flex-wrap items-center gap-2 text-xl font-semibold">
+            {lead?.name ?? "Lead"}
             <Badge variant="outline">{conv.channel}</Badge>
+            {conv.outreach_state && !conv.needs_attention && (
+              <Badge
+                variant={
+                  st.tone === "success"
+                    ? "success"
+                    : st.tone === "danger"
+                      ? "danger"
+                      : "secondary"
+                }
+              >
+                {st.icon} {st.label}
+              </Badge>
+            )}
           </h1>
           <p className="text-sm text-muted-foreground">
             {lead?.segment ?? "—"} · {lead?.city ?? "—"}
             {lead?.state ? `/${lead.state}` : ""}
+            {campaignName ? ` · campanha: ${campaignName}` : ""}
+            {conv.catalog_sent ? " · 📎 catálogo enviado" : ""}
           </p>
         </div>
         {lead && (
@@ -75,6 +104,25 @@ export default async function ConversaPage({
           </Link>
         )}
       </div>
+
+      {conv.needs_attention && (
+        <Card className="border-red-400 bg-red-500/5 dark:border-red-500">
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+            <div>
+              <p className="text-sm font-semibold">🔥 O cliente respondeu</p>
+              <p className="text-xs text-muted-foreground">
+                A prospecção automática já parou para este contato. Assuma o
+                atendimento para continuar a conversa.
+              </p>
+            </div>
+            <form action={assumeConversation.bind(null, conv.id)}>
+              <Button size="sm" type="submit">
+                Assumir atendimento
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      )}
 
       {conv.ai_summary && (
         <Card>

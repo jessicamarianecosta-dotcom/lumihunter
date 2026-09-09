@@ -1010,14 +1010,23 @@ export type Database = {
           ai_classification: string | null
           ai_summary: string | null
           assigned_to: string | null
+          attention_since: string | null
+          catalog_sent: boolean
           channel: Database["public"]["Enums"]["channel_type"]
           company_id: string
           created_at: string
           external_id: string | null
+          handled_at: string | null
+          handled_by: string | null
           id: string
+          last_inbound_at: string | null
           last_message_at: string | null
           last_message_preview: string | null
+          last_outbound_at: string | null
           lead_id: string
+          needs_attention: boolean
+          outreach_campaign_id: string | null
+          outreach_state: string | null
           provider: string | null
           status: Database["public"]["Enums"]["conversation_status"]
           unread_count: number
@@ -1027,14 +1036,23 @@ export type Database = {
           ai_classification?: string | null
           ai_summary?: string | null
           assigned_to?: string | null
+          attention_since?: string | null
+          catalog_sent?: boolean
           channel: Database["public"]["Enums"]["channel_type"]
           company_id: string
           created_at?: string
           external_id?: string | null
+          handled_at?: string | null
+          handled_by?: string | null
           id?: string
+          last_inbound_at?: string | null
           last_message_at?: string | null
           last_message_preview?: string | null
+          last_outbound_at?: string | null
           lead_id: string
+          needs_attention?: boolean
+          outreach_campaign_id?: string | null
+          outreach_state?: string | null
           provider?: string | null
           status?: Database["public"]["Enums"]["conversation_status"]
           unread_count?: number
@@ -1044,14 +1062,23 @@ export type Database = {
           ai_classification?: string | null
           ai_summary?: string | null
           assigned_to?: string | null
+          attention_since?: string | null
+          catalog_sent?: boolean
           channel?: Database["public"]["Enums"]["channel_type"]
           company_id?: string
           created_at?: string
           external_id?: string | null
+          handled_at?: string | null
+          handled_by?: string | null
           id?: string
+          last_inbound_at?: string | null
           last_message_at?: string | null
           last_message_preview?: string | null
+          last_outbound_at?: string | null
           lead_id?: string
+          needs_attention?: boolean
+          outreach_campaign_id?: string | null
+          outreach_state?: string | null
           provider?: string | null
           status?: Database["public"]["Enums"]["conversation_status"]
           unread_count?: number
