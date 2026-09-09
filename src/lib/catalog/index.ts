@@ -47,17 +47,34 @@ const STOPWORDS = new Set([
   "quero","preciso","vocês","voces","fazem","tem","teria","de","do","da","um","uma",
   "com","para","por","quanto","custa","qual","valor","preço","preco","o","a","e",
   "me","manda","gostaria","orçamento","orcamento","fazer","consigo","poderia",
+  "gostaria","quanto","fica","sai","seria","dá","tá","ta","aí","ai","favor","por",
+  "ola","olá","oi","bom","dia","tarde","noite","obrigado","obrigada","você","vc",
+]);
+
+/**
+ * Descritores comerciais genéricos: aparecem em quase todo nome de produto e
+ * NÃO identificam um produto. Nunca contam como relevância na busca.
+ */
+const GENERIC = new Set([
+  "personalizado","personalizada","personalizados","personalizadas","personalizar",
+  "custom","customizado","customizada","exclusivo","exclusiva",
+  "sob","medida","brinde","brindes","kit","kits","produto","produtos",
+  "servico","serviço","impresso","impressa","grafica","gráfica",
 ]);
 
 export interface DerivedQuery {
+  /** consulta legível (para logs/telemetria). */
   query: string;
+  /** palavras que IDENTIFICAM o produto (sem descritores genéricos). */
+  terms: string[];
+  /** especificações estruturadas mencionadas (couché 300g, 100un, 9x5…). */
   specs: string[];
 }
 
 /**
- * Extrai um termo de busca + especificações mencionadas de uma mensagem livre.
- * Puro. Ex.: "quero cartão de visita couché 300g frente e verso" →
- *   { query: "cartão visita", specs: ["couché 300g", "300g", "frente e verso"] }
+ * Extrai os termos de busca + especificações de uma mensagem livre. Puro.
+ * Ex.: "quanto custa uma caneca personalizada?" →
+ *   { query: "caneca personalizada", terms: ["caneca"], specs: [] }
  */
 export function deriveCommercialQuery(message: string): DerivedQuery {
   const text = message.toLowerCase();
@@ -66,14 +83,15 @@ export function deriveCommercialQuery(message: string): DerivedQuery {
       SPEC_PATTERNS.flatMap((re) => Array.from(text.matchAll(re), (m) => m[0].trim())),
     ),
   ];
-  const query = text
-    .replace(/[.!?,;:]/g, " ")
+  const words = text
+    .replace(/[.!?,;:/()]/g, " ")
     .split(/\s+/)
-    .filter((w) => w.length > 2 && !STOPWORDS.has(w))
-    .slice(0, 8)
-    .join(" ")
-    .trim();
-  return { query: query || message.trim().slice(0, 60), specs };
+    .map((w) => w.trim())
+    .filter((w) => w.length > 2 && !STOPWORDS.has(w));
+
+  const terms = [...new Set(words.filter((w) => !GENERIC.has(w)))].slice(0, 8);
+  const query = [...new Set(words)].slice(0, 8).join(" ").trim();
+  return { query: query || message.trim().slice(0, 60), terms, specs };
 }
 
 // ── Renderização do contexto para o prompt (pura) ──────────────────────────
@@ -122,9 +140,9 @@ const HEADER: Record<SearchOutcome["kind"], string> = {
   AMBIGUOUS:
     "Ainda há mais de um produto/modelo possível. A resposta deve APRESENTAR essas opções (só os nomes) e PERGUNTAR qual o cliente quer. NÃO escolha um por conta própria. NÃO cite preço ainda — o preço depende da escolha.",
   NOT_FOUND:
-    "NADA na base comercial corresponde. NÃO invente. Diga que vai verificar essa opção.",
+    "Esse produto NÃO existe em nenhuma fonte (base local nem Precy+). NÃO invente. Diga que não encontrou ESSE item e peça mais detalhes se fizer sentido. NUNCA ofereça outros produtos do catálogo como substituto.",
   SOURCE_UNAVAILABLE:
-    "A fonte de catálogo está indisponível agora. NÃO invente preço. Ofereça encaminhar para atendimento.",
+    "A fonte de catálogo está indisponível agora. NÃO invente preço. Ofereça encaminhar para atendimento. NÃO ofereça outros produtos.",
 };
 
 /**
@@ -164,19 +182,37 @@ export async function buildCommercialContext(args: {
   message: string;
 }): Promise<{ outcome: SearchOutcome; contextText: string; derived: DerivedQuery }> {
   const derived = deriveCommercialQuery(args.message);
+
+  // Sem nenhum termo que identifique um produto (ex.: "quanto custa?") →
+  // não sai listando o catálogo; pede o produto.
+  if (derived.terms.length === 0) {
+    return {
+      outcome: {
+        kind: "NOT_FOUND",
+        query: derived.query,
+        products: [],
+        sourcesChecked: [],
+        note: "O cliente não disse qual produto — pergunte qual produto/serviço ele procura.",
+      },
+      contextText:
+        "## BASE COMERCIAL\nO cliente ainda não disse QUAL produto quer. Pergunte qual produto/serviço ele procura antes de falar preço. NÃO liste o catálogo.",
+      derived,
+    };
+  }
+
   let outcome = await searchCatalog({
     companyId: args.companyId,
     query: derived.query,
+    terms: derived.terms,
     requestedSpecs: derived.specs,
   });
 
   // Fallback: nada na base local → consulta o catálogo online conectado (Precy+).
   if (outcome.kind === "NOT_FOUND") {
-    const words = derived.query.split(/\s+/).map((w) => w.toLowerCase());
     const remote = await livePrecySearch({
       companyId: args.companyId,
       query: derived.query,
-      words,
+      terms: derived.terms,
       requestedSpecs: derived.specs,
     });
     if (remote && remote.kind !== "NOT_FOUND") outcome = remote;

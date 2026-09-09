@@ -36,7 +36,7 @@ describe("precyIsConsultable / livePrecySearch", () => {
     maybeSingle.mockResolvedValue({ data: null });
     expect(await precyIsConsultable("c1")).toBe(false);
     expect(
-      await livePrecySearch({ companyId: "c1", query: "caneca", words: ["caneca"] }),
+      await livePrecySearch({ companyId: "c1", query: "caneca", terms: ["caneca"] }),
     ).toBeNull();
   });
 
@@ -71,7 +71,7 @@ describe("precyIsConsultable / livePrecySearch", () => {
     const out = await livePrecySearch({
       companyId: "c1",
       query: "caneca personalizada",
-      words: ["caneca", "personalizada"],
+      terms: ["caneca", "personalizada"],
     });
     // 1 produto com 2 modelos → PARTIAL (o agente apresenta os 2 preços e pergunta o modelo)
     expect(["FOUND", "PARTIAL"]).toContain(out?.kind);
@@ -89,7 +89,7 @@ describe("precyIsConsultable / livePrecySearch", () => {
     const out = await livePrecySearch({
       companyId: "c2",
       query: "banner",
-      words: ["banner"],
+      terms: ["banner"],
     });
     expect(out?.kind).toBe("SOURCE_UNAVAILABLE");
   });
@@ -102,7 +102,7 @@ describe("precyIsConsultable / livePrecySearch", () => {
     const out = await livePrecySearch({
       companyId: "c3",
       query: "guardanapo de linho",
-      words: ["guardanapo", "linho"],
+      terms: ["guardanapo", "linho"],
     });
     expect(out?.kind).toBe("NOT_FOUND");
   });

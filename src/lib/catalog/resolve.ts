@@ -144,9 +144,10 @@ export interface ClassifyInput {
  * Pura — não toca no banco.
  */
 export function classifySearch(input: ClassifyInput): SearchOutcome {
-  const { query, matches, requestedSpecs = [], sourcesChecked } = input;
+  const { query, requestedSpecs = [], sourcesChecked } = input;
+  // "Panfleto … 100un / 300un / …" vira UM produto com N variantes.
+  const matches = groupProductFamilies(input.matches);
 
-  const anySourceDown = sourcesChecked.some((s) => !s.ok);
   const allNeededSourcesDown =
     sourcesChecked.length > 0 && sourcesChecked.every((s) => !s.ok);
 
@@ -251,33 +252,133 @@ export function missingSpecGroups(
   return [...groups];
 }
 
+function haystack(p: CommercialProduct): string {
+  return `${p.name} ${p.description ?? ""} ${p.category ?? ""} ${p.variants
+    .flatMap((v) => [...v.optionLabels, ...Object.values(v.attributes).map(String)])
+    .join(" ")}`.toLowerCase();
+}
+
 /**
- * Restringe a lista de candidatos ao(s) produto(s) mais aderente(s) às palavras
- * da consulta acumulada do cliente. Ex.: "caneca branca" → só a "Caneca branca"
- * (2 palavras batem) em vez das 3 canecas (só "caneca" bate).
- * Se todos empatam, devolve todos (segue AMBIGUOUS).
+ * Filtra os candidatos aos que REALMENTE correspondem aos termos que
+ * identificam o produto. Regra dura: um produto só entra se contém ≥1 `terms`.
+ * Se NENHUM produto contém algum termo → devolve [] (a busca vira NOT_FOUND).
+ * Entre os que passam, mantém só os de maior nº de termos casados.
+ *
+ * Ex.: terms=["caneca"] → só produtos com "caneca" no nome; "personalizada"
+ * (descritor genérico) já foi removida em deriveCommercialQuery, então
+ * camiseta/panfleto NUNCA entram.
  */
-export function narrowByQueryOverlap(
+export function relevantMatches(
   products: CommercialProduct[],
-  words: string[],
+  terms: string[],
 ): CommercialProduct[] {
-  const terms = words
-    .map((w) => w.toLowerCase().trim())
-    .filter((w) => w.length > 2);
-  if (terms.length === 0 || products.length <= 1) return products;
+  const t = terms.map((w) => w.toLowerCase().trim()).filter((w) => w.length > 2);
+  if (t.length === 0) return products;
 
-  const score = (p: CommercialProduct) => {
-    const hay = `${p.name} ${p.description ?? ""} ${p.category ?? ""} ${p.variants
-      .flatMap((v) => v.optionLabels)
-      .join(" ")}`.toLowerCase();
-    return terms.filter((t) => hay.includes(t)).length;
-  };
+  const scored = products
+    .map((p) => ({ p, s: t.filter((term) => haystack(p).includes(term)).length }))
+    .filter((x) => x.s > 0);
 
-  const scored = products.map((p) => ({ p, s: score(p) }));
+  if (scored.length === 0) return [];
   const max = Math.max(...scored.map((x) => x.s));
-  if (max === 0) return products;
-  const top = scored.filter((x) => x.s === max).map((x) => x.p);
-  return top.length < products.length ? top : products;
+  return scored.filter((x) => x.s === max).map((x) => x.p);
+}
+
+/** Compat: mantido para chamadas antigas. */
+export const narrowByQueryOverlap = relevantMatches;
+
+// ── Agrupamento de "famílias" de produto ────────────────────────────────────
+function familyKey(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-zà-ú0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 3)
+    .join(" ");
+}
+
+function commonPrefixWords(names: string[]): string {
+  if (names.length === 0) return "";
+  const split = names.map((n) => n.trim().split(/\s+/));
+  const out: string[] = [];
+  for (let i = 0; i < split[0].length; i++) {
+    const w = split[0][i];
+    if (split.every((s) => s[i]?.toLowerCase() === w.toLowerCase())) out.push(w);
+    else break;
+  }
+  return out.join(" ").replace(/[-–]\s*$/, "").trim();
+}
+
+/**
+ * Junta produtos que na verdade são o MESMO item com quantidades/opções
+ * diferentes (ex.: "Panfleto 10x14 ... 100un", "... 300un", "... dupla face
+ * 500un" → 1 produto "Panfleto 10x14" com N variantes). Canecas com nomes
+ * distintos ("Caneca branca" vs "Caneca transparente") NÃO são agrupadas.
+ */
+export function groupProductFamilies(
+  products: CommercialProduct[],
+): CommercialProduct[] {
+  if (products.length < 2) return products;
+
+  const groups = new Map<string, CommercialProduct[]>();
+  for (const p of products) {
+    const k = familyKey(p.name);
+    groups.set(k, [...(groups.get(k) ?? []), p]);
+  }
+
+  const out: CommercialProduct[] = [];
+  for (const members of groups.values()) {
+    if (members.length < 2) {
+      out.push(members[0]);
+      continue;
+    }
+    const prefix = commonPrefixWords(members.map((m) => m.name)) || members[0].name;
+    const variants: CommercialVariant[] = members.flatMap((m) => {
+      const suffix = m.name.slice(prefix.length).replace(/^[\s-–]+/, "").trim();
+      const base =
+        m.priceRange?.min ??
+        m.variants.find((v) => typeof v.price === "number")?.price ??
+        null;
+      if (m.variants.length <= 1) {
+        return [
+          {
+            id: m.id,
+            sku: m.variants[0]?.sku ?? null,
+            optionLabels: suffix ? [suffix] : [],
+            attributes: {},
+            priceKind: base == null ? "quote" : ("fixed" as const),
+            price: base,
+            priceTiers: m.variants[0]?.priceTiers ?? null,
+            currency: "BRL",
+            minQuantity: m.variants[0]?.minQuantity ?? null,
+            leadTimeDays: m.variants[0]?.leadTimeDays ?? null,
+            stockQuantity: null,
+            notes: null,
+            isActive: true,
+            needsReview: false,
+            source: m.source,
+          },
+        ];
+      }
+      return m.variants.map((v) => ({
+        ...v,
+        optionLabels: suffix ? [suffix, ...v.optionLabels] : v.optionLabels,
+      }));
+    });
+    out.push({
+      ...members[0],
+      id: `family:${familyKey(members[0].name)}`,
+      name: prefix,
+      description: null,
+      variants,
+      priceRange: priceRangeOf(variants),
+      contributingSources: [
+        ...new Set(members.flatMap((m) => m.contributingSources)),
+      ],
+    });
+  }
+  return out;
 }
 
 export type { SearchOutcomeKind };

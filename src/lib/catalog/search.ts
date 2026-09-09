@@ -11,7 +11,7 @@ import type {
   ProductVariationGroupRow,
   ProductVariationOptionRow,
 } from "@/lib/supabase/database.types";
-import { classifySearch, narrowByQueryOverlap } from "./resolve";
+import { classifySearch, relevantMatches } from "./resolve";
 import type {
   CommercialProduct,
   CommercialVariant,
@@ -142,17 +142,23 @@ async function loadProducts(
 export async function searchCatalog(args: {
   companyId: string;
   query: string;
+  /** palavras que identificam o produto (sem descritores genéricos). */
+  terms?: string[];
   requestedSpecs?: string[];
   limit?: number;
 }): Promise<SearchOutcome> {
   const admin = createAdminClient();
-  const limit = args.limit ?? 8;
+  const limit = args.limit ?? 12;
+  const terms =
+    args.terms && args.terms.length
+      ? args.terms
+      : args.query.split(/\s+/).filter((w) => w.length > 2);
 
   let matchIds: string[] = [];
   try {
     const { data, error } = await admin.rpc("search_commercial_catalog", {
       p_company_id: args.companyId,
-      p_query: args.query,
+      p_query: terms.join(" ") || args.query,
       p_limit: limit,
     });
     if (error) throw error;
@@ -160,13 +166,9 @@ export async function searchCatalog(args: {
   } catch {
     // Fallback sem a RPC: casa QUALQUER palavra relevante da consulta no nome
     // ou na descrição (a consulta já vem "limpa" de deriveCommercialQuery).
-    const words = args.query
-      .split(/\s+/)
-      .map((w) => w.trim())
-      .filter((w) => w.length > 2)
-      .slice(0, 6);
-    const orFilter = words.length
-      ? words
+    const orFilter = terms.length
+      ? terms
+          .slice(0, 6)
           .flatMap((w) => [`name.ilike.%${w}%`, `description.ilike.%${w}%`])
           .join(",")
       : `name.ilike.%${args.query}%`;
@@ -180,7 +182,8 @@ export async function searchCatalog(args: {
   }
 
   const products = await loadProducts(admin, args.companyId, matchIds);
-  const narrowed = narrowByQueryOverlap(products, args.query.split(/\s+/));
+  // filtro DURO de relevância: só produtos que casam os termos do produto
+  const narrowed = relevantMatches(products, terms);
 
   const outcome = classifySearch({
     query: args.query,

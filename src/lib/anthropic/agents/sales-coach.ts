@@ -77,6 +77,7 @@ export async function runSalesCoach(args: RunArgs): Promise<SalesCoachResult> {
   const accumulated = recentInboundText(args);
   let commercialContext = "";
   let catalogOutcome: SearchOutcome["kind"] | undefined;
+  let catalogProductNames: string[] = [];
   if (inbound && COMMERCIAL_HINT.test(accumulated)) {
     try {
       const { contextText, outcome } = await buildCommercialContext({
@@ -85,13 +86,14 @@ export async function runSalesCoach(args: RunArgs): Promise<SalesCoachResult> {
       });
       commercialContext = contextText;
       catalogOutcome = outcome.kind;
+      catalogProductNames = outcome.products.map((p) => p.name);
     } catch {
       // base comercial indisponível (ex.: migration não aplicada) — segue sem ela
     }
   }
 
   if (await isAiDemoMode(args.companyId)) {
-    const r = demoCoach(args, catalogOutcome);
+    const r = demoCoach(args, catalogOutcome, catalogProductNames);
     await logAiRun({
       companyId: args.companyId,
       agentKind: "sales_coach",
@@ -137,7 +139,7 @@ preço ou especificação que apareça lá. JSON:
   "next_step": "o que fazer agora"
 }`;
 
-  let out = demoCoach(args, catalogOutcome);
+  let out = demoCoach(args, catalogOutcome, catalogProductNames);
   let usage = null;
   let provider: "anthropic" | "openai" = "anthropic";
   let model = "unknown";
@@ -175,6 +177,7 @@ preço ou especificação que apareça lá. JSON:
 function demoCoach(
   args: RunArgs,
   catalogOutcome?: SearchOutcome["kind"],
+  productNames: string[] = [],
 ): SalesCoachResult {
   const last = [...args.messages].reverse().find((m) => m.direction === "inbound");
   const txt = (last?.body ?? "").toLowerCase();
@@ -203,7 +206,12 @@ function demoCoach(
           ]
         : catalogOutcome === "AMBIGUOUS"
           ? [
-              "Temos algumas opções pra isso — quer que eu te mostre as disponíveis com os valores?",
+              productNames.length
+                ? `Temos alguns modelos: ${productNames.slice(0, 4).join(", ")}. Qual você prefere? 😊`
+                : "Temos algumas opções pra isso — qual modelo você prefere?",
+              productNames.length
+                ? `Pra te passar o valor certo: você quer ${productNames.slice(0, 3).join(", ")}? Me diz qual.`
+                : "Me diz qual modelo você quer que eu já te passo o valor.",
             ]
           : catalogOutcome === "SOURCE_UNAVAILABLE"
             ? [

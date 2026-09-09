@@ -143,10 +143,13 @@ describe("classifySearch", () => {
     expect(r.kind).toBe("SOURCE_UNAVAILABLE");
   });
 
-  it("teste 9 — vários produtos → AMBIGUOUS", () => {
+  it("teste 9 — vários produtos DISTINTOS → AMBIGUOUS", () => {
     const r = classifySearch({
       query: "caneca",
-      matches: [product({ source: "manual", id: "a" }), product({ source: "manual", id: "b" })],
+      matches: [
+        product({ source: "manual", id: "a", name: "Caneca branca" }),
+        product({ source: "manual", id: "b", name: "Caneca transparente" }),
+      ],
       sourcesChecked: sources,
     });
     expect(r.kind).toBe("AMBIGUOUS");

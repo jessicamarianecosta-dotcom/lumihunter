@@ -10,7 +10,7 @@
  */
 import { createAdminClient } from "@/lib/supabase/admin";
 import { precyCatalogProvider } from "./providers/precy";
-import { classifySearch, narrowByQueryOverlap } from "./resolve";
+import { classifySearch, relevantMatches } from "./resolve";
 import type {
   CatalogSourceKind,
   CommercialProduct,
@@ -140,7 +140,8 @@ export async function precyIsConsultable(companyId: string): Promise<boolean> {
 export async function livePrecySearch(args: {
   companyId: string;
   query: string;
-  words: string[];
+  /** palavras que identificam o produto (sem descritores genéricos). */
+  terms: string[];
   requestedSpecs?: string[];
 }): Promise<SearchOutcome | null> {
   const url = await connectedPrecyUrl(args.companyId);
@@ -157,16 +158,16 @@ export async function livePrecySearch(args: {
     };
   }
 
-  const words = args.words.filter((w) => w.length > 2);
-  const matches = catalog.filter((p) => {
-    const hay = `${p.name} ${p.description ?? ""} ${p.category ?? ""}`.toLowerCase();
-    return words.length === 0 || words.some((w) => hay.includes(w));
-  });
-
-  const commercial = narrowByQueryOverlap(
-    matches.map((p) => toCommercial(p, "precy_online")),
-    args.words,
-  );
+  // filtro DURO: só os produtos do Precy+ que casam os termos do produto.
+  // Sem termos → NOT_FOUND (não devolve catálogo inteiro).
+  const terms = args.terms.filter((w) => w.length > 2);
+  const commercial =
+    terms.length === 0
+      ? []
+      : relevantMatches(
+          catalog.map((p) => toCommercial(p, "precy_online")),
+          terms,
+        );
 
   return classifySearch({
     query: args.query,
