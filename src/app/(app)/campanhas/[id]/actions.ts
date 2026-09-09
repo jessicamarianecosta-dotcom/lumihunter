@@ -46,6 +46,55 @@ export async function addCampaignTargets(campaignId: string) {
   revalidatePath(`/campanhas/${campaignId}`);
 }
 
+const CAMPAIGN_STATUSES = new Set([
+  "draft",
+  "active",
+  "paused",
+  "completed",
+  "archived",
+]);
+
+/** Edição completa da campanha (nome, produto, público, região, canal, status). */
+export async function updateCampaign(campaignId: string, formData: FormData) {
+  const ctx = await getAppContext();
+  if (!canWrite(ctx.role)) throw new Error("sem permissão");
+  const supabase = await createClient();
+
+  const name = String(formData.get("name") || "").trim();
+  if (!name) throw new Error("nome obrigatório");
+
+  const regions = String(formData.get("regions") || "")
+    .split(/[,;\n]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const productId = String(formData.get("product_id") || "").trim();
+  const channel =
+    (String(formData.get("channel")) as "whatsapp" | "email") || "whatsapp";
+  const statusRaw = String(formData.get("status") || "").trim();
+  const status = CAMPAIGN_STATUSES.has(statusRaw) ? statusRaw : "draft";
+
+  await supabase
+    .from("campaigns")
+    .update({
+      name,
+      product_id: productId || null,
+      product_text: String(formData.get("product_text") || "").trim() || null,
+      audience_text: String(formData.get("audience_text") || "").trim() || null,
+      regions,
+      city: regions[0] ?? null,
+      channel,
+      status: status as never,
+      ...(status === "active" && !formData.get("was_active")
+        ? { started_at: new Date().toISOString() }
+        : {}),
+    })
+    .eq("id", campaignId)
+    .eq("company_id", ctx.company.id);
+
+  revalidatePath(`/campanhas/${campaignId}`);
+}
+
 export async function setCampaignStatus(campaignId: string, status: string) {
   const ctx = await getAppContext();
   if (!canWrite(ctx.role)) throw new Error("sem permissão");

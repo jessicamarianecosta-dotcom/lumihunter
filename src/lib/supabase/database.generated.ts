@@ -443,6 +443,7 @@ export type Database = {
           channel: Database["public"]["Enums"]["channel_type"]
           city: string | null
           company_id: string
+          audience_text: string | null
           completed_at: string | null
           created_at: string
           created_by: string | null
@@ -450,8 +451,11 @@ export type Database = {
           goal: string | null
           icp_id: string | null
           id: string
+          last_discovery_at: string | null
           name: string
           product_id: string | null
+          product_text: string | null
+          regions: string[]
           segment: string | null
           started_at: string | null
           status: Database["public"]["Enums"]["campaign_status"]
@@ -460,6 +464,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          audience_text?: string | null
           channel?: Database["public"]["Enums"]["channel_type"]
           city?: string | null
           company_id: string
@@ -470,8 +475,11 @@ export type Database = {
           goal?: string | null
           icp_id?: string | null
           id?: string
+          last_discovery_at?: string | null
           name: string
           product_id?: string | null
+          product_text?: string | null
+          regions?: string[]
           segment?: string | null
           started_at?: string | null
           status?: Database["public"]["Enums"]["campaign_status"]
@@ -480,6 +488,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          audience_text?: string | null
           channel?: Database["public"]["Enums"]["channel_type"]
           city?: string | null
           company_id?: string
@@ -490,8 +499,11 @@ export type Database = {
           goal?: string | null
           icp_id?: string | null
           id?: string
+          last_discovery_at?: string | null
           name?: string
           product_id?: string | null
+          product_text?: string | null
+          regions?: string[]
           segment?: string | null
           started_at?: string | null
           status?: Database["public"]["Enums"]["campaign_status"]
@@ -1356,6 +1368,142 @@ export type Database = {
           },
           {
             foreignKeyName: "lead_contacts_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lead_discoveries: {
+        Row: {
+          address: string | null
+          approved_at: string | null
+          approved_by: string | null
+          campaign_id: string
+          city: string | null
+          company_id: string
+          company_name: string
+          country: string | null
+          created_at: string
+          dedupe_key: string
+          description: string | null
+          discovered_at: string
+          discovery_query: string | null
+          email: string | null
+          id: string
+          instagram: string | null
+          lead_id: string | null
+          legal_name: string | null
+          phone: string | null
+          qualification: string | null
+          qualification_reason: string | null
+          qualification_signals: Json
+          qualified_by: string | null
+          raw: Json
+          recommended_approach: string | null
+          rejected_at: string | null
+          score: number | null
+          segment: string | null
+          source: string
+          source_url: string | null
+          state: string | null
+          status: string
+          updated_at: string
+          website: string | null
+          whatsapp: string | null
+        }
+        Insert: {
+          address?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          campaign_id: string
+          city?: string | null
+          company_id: string
+          company_name: string
+          country?: string | null
+          created_at?: string
+          dedupe_key: string
+          description?: string | null
+          discovered_at?: string
+          discovery_query?: string | null
+          email?: string | null
+          id?: string
+          instagram?: string | null
+          lead_id?: string | null
+          legal_name?: string | null
+          phone?: string | null
+          qualification?: string | null
+          qualification_reason?: string | null
+          qualification_signals?: Json
+          qualified_by?: string | null
+          raw?: Json
+          recommended_approach?: string | null
+          rejected_at?: string | null
+          score?: number | null
+          segment?: string | null
+          source?: string
+          source_url?: string | null
+          state?: string | null
+          status?: string
+          updated_at?: string
+          website?: string | null
+          whatsapp?: string | null
+        }
+        Update: {
+          address?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          campaign_id?: string
+          city?: string | null
+          company_id?: string
+          company_name?: string
+          country?: string | null
+          created_at?: string
+          dedupe_key?: string
+          description?: string | null
+          discovered_at?: string
+          discovery_query?: string | null
+          email?: string | null
+          id?: string
+          instagram?: string | null
+          lead_id?: string | null
+          legal_name?: string | null
+          phone?: string | null
+          qualification?: string | null
+          qualification_reason?: string | null
+          qualification_signals?: Json
+          qualified_by?: string | null
+          raw?: Json
+          recommended_approach?: string | null
+          rejected_at?: string | null
+          score?: number | null
+          segment?: string | null
+          source?: string
+          source_url?: string | null
+          state?: string | null
+          status?: string
+          updated_at?: string
+          website?: string | null
+          whatsapp?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lead_discoveries_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_discoveries_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_discoveries_lead_id_fkey"
             columns: ["lead_id"]
             isOneToOne: false
             referencedRelation: "leads"

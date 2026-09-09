@@ -18,14 +18,20 @@ async function createCampaign(formData: FormData) {
   const ctx = await getAppContext();
   if (!canWrite(ctx.role)) throw new Error("sem permissão");
   const supabase = await createClient();
+  const regions = String(formData.get("regions") || "")
+    .split(/[,;\n]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
   await supabase.from("campaigns").insert({
     company_id: ctx.company.id,
     name: String(formData.get("name") || "").trim(),
+    product_text: String(formData.get("product_text") || "").trim() || null,
+    audience_text: String(formData.get("audience_text") || "").trim() || null,
+    regions,
     goal: String(formData.get("goal") || "") || null,
     channel:
       (String(formData.get("channel")) as "whatsapp" | "email") || "whatsapp",
-    segment: String(formData.get("segment") || "") || null,
-    city: String(formData.get("city") || "") || null,
+    city: regions[0] ?? null,
     target_count: Number(formData.get("target_count")) || 0,
     created_by: ctx.userId,
   });
@@ -131,7 +137,21 @@ export default async function CampanhasPage() {
             <p className="text-sm font-medium">Nova campanha</p>
             <form action={createCampaign} className="mt-3 space-y-3">
               <F name="name" label="Nome" required />
-              <F name="goal" label="Objetivo" />
+              <F
+                name="product_text"
+                label="Produto / serviço"
+                placeholder="Adesivos e rótulos personalizados"
+              />
+              <F
+                name="audience_text"
+                label="Público-alvo"
+                placeholder="Lojas, artesãos, confeiteiros…"
+              />
+              <F
+                name="regions"
+                label="Região (separe por vírgula)"
+                placeholder="Curitiba, São José dos Pinhais"
+              />
               <div className="space-y-1.5">
                 <Label htmlFor="channel">Canal</Label>
                 <select
@@ -143,8 +163,7 @@ export default async function CampanhasPage() {
                   <option value="email">E-mail</option>
                 </select>
               </div>
-              <F name="segment" label="Segmento" />
-              <F name="city" label="Cidade" />
+              <F name="goal" label="Objetivo (opcional)" />
               <F name="target_count" label="Meta de leads" type="number" />
               <Button type="submit" className="w-full">
                 Criar
