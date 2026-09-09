@@ -149,6 +149,7 @@ function toProviderProduct(
   groups: GroupRow[],
   variants: VariantRow[],
   categoryName: string | null,
+  storeCheckoutMode: string | null,
 ): ProviderProduct {
   return {
     externalId: row.id,
@@ -160,7 +161,8 @@ function toProviderProduct(
     startingPrice: row.catalog_starting_price,
     promoPrice: row.catalog_promo_price,
     leadTimeDays: row.catalog_lead_time_days,
-    checkoutMode: row.catalog_checkout_mode,
+    // per-produto quando definido; senão o modo da loja (ex.: "quote")
+    checkoutMode: row.catalog_checkout_mode ?? storeCheckoutMode,
     photoUrls: [
       ...(row.catalog_photos ?? []),
       ...images.sort((a, b) => a.sort_order - b.sort_order).map((i) => i.url),
@@ -193,6 +195,7 @@ function toProviderProduct(
 async function fetchProductDetail(
   row: ListRow,
   categoryName: string | null,
+  storeCheckoutMode: string | null,
 ): Promise<ProviderProduct> {
   const pid = row.id;
   const [images, groups, variants] = await Promise.all([
@@ -206,7 +209,7 @@ async function fetchProductDetail(
       `product_variants?product_id=eq.${pid}&is_active=eq.true&select=${SELECT.variants}&order=sort_order.asc`,
     ),
   ]);
-  return toProviderProduct(row, images, groups, variants, categoryName);
+  return toProviderProduct(row, images, groups, variants, categoryName, storeCheckoutMode);
 }
 
 async function categoryMap(externalCompanyId: string): Promise<Map<string, string>> {
@@ -290,8 +293,13 @@ export const precyCatalogProvider: CatalogProvider = {
       categoryMap(store.externalCompanyId),
     ]);
 
+    const storeCheckout = store.settings.checkout_mode;
     return mapLimited(list, 5, (row) =>
-      fetchProductDetail(row, row.catalog_category_id ? cats.get(row.catalog_category_id) ?? null : null),
+      fetchProductDetail(
+        row,
+        row.catalog_category_id ? cats.get(row.catalog_category_id) ?? null : null,
+        storeCheckout,
+      ),
     );
   },
 
@@ -307,6 +315,7 @@ export const precyCatalogProvider: CatalogProvider = {
     return fetchProductDetail(
       row,
       row.catalog_category_id ? cats.get(row.catalog_category_id) ?? null : null,
+      store?.settings.checkout_mode ?? null,
     );
   },
 };
