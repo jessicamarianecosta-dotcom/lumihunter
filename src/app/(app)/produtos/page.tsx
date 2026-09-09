@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { CsvImportButton, CsvExportButton } from "@/components/shared/csv-tools";
 import { AddProductButton } from "@/components/produtos/add-product-button";
 import { CatalogSources } from "@/components/produtos/catalog-sources";
+import { CatalogPdfsSection } from "@/components/produtos/catalog-pdfs-section";
 import { canWrite } from "@/lib/auth/context";
 import { formatCurrencyBRL } from "@/lib/utils";
 import type { Product } from "@/lib/supabase/database.types";
@@ -48,6 +49,8 @@ export default async function ProductsPage() {
         />
         <CsvExportButton href="/api/products/export" />
       </div>
+
+      <CatalogPdfsSection companyId={ctx.company.id} canWrite={canWrite(ctx.role)} />
 
       <CatalogSources companyId={ctx.company.id} canWrite={canWrite(ctx.role)} />
 

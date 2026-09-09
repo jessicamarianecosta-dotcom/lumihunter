@@ -115,6 +115,7 @@ export default async function CampanhaPage({
     { data: lastRun },
     { data: queueRaw },
     catalogPdf,
+    { data: catalogPdfsRaw },
   ] = await Promise.all([
     supabase
       .from("campaign_targets")
@@ -165,12 +166,18 @@ export default async function CampanhaPage({
           supabase,
           ctx.company.id,
           {
-            outreach_catalog_product_id: campaign.outreach_catalog_product_id,
+            outreach_catalog_pdf_id: campaign.outreach_catalog_pdf_id,
             product_id: campaign.product_id,
           },
           ctx.company.name,
         ).catch(() => null)
       : Promise.resolve(null),
+    supabase
+      .from("catalog_pdfs")
+      .select("id, file_name, is_default, use_for_sending")
+      .eq("company_id", ctx.company.id)
+      .eq("use_for_sending", true)
+      .order("is_default", { ascending: false }),
   ]);
 
   const rows = targets ?? [];
@@ -517,20 +524,24 @@ export default async function CampanhaPage({
                   Enviar catálogo PDF
                 </label>
                 <div className="space-y-1.5 sm:col-span-2">
-                  <Label htmlFor="catalog_product_id">Catálogo (produto do catálogo — opcional)</Label>
+                  <Label htmlFor="catalog_pdf_id">Catálogo PDF a enviar</Label>
                   <select
-                    id="catalog_product_id"
-                    name="catalog_product_id"
-                    defaultValue={campaign.outreach_catalog_product_id ?? ""}
+                    id="catalog_pdf_id"
+                    name="catalog_pdf_id"
+                    defaultValue={campaign.outreach_catalog_pdf_id ?? ""}
                     className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
                   >
-                    <option value="">— usar o PDF do produto da campanha —</option>
-                    {(products ?? []).map((pr) => (
-                      <option key={pr.id} value={pr.id}>
-                        {pr.name}
+                    <option value="">— usar o catálogo padrão da empresa —</option>
+                    {(catalogPdfsRaw ?? []).map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.file_name}
+                        {c.is_default ? " (padrão)" : ""}
                       </option>
                     ))}
                   </select>
+                  <p className="text-[11px] text-muted-foreground">
+                    Gerencie os PDFs em Produtos &amp; Serviços → Catálogos.
+                  </p>
                 </div>
                 <div className="sm:col-span-2">
                   <Button size="sm" type="submit">

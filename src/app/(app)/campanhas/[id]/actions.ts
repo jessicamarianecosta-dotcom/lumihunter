@@ -120,8 +120,8 @@ export async function saveOutreachSettings(campaignId: string, formData: FormDat
       outreach_min_interval_seconds: num("min_interval", 5, 3600, 30),
       outreach_personalize_ai: formData.get("personalize_ai") === "on",
       outreach_send_catalog: formData.get("send_catalog") === "on",
-      outreach_catalog_product_id:
-        String(formData.get("catalog_product_id") || "").trim() || null,
+      outreach_catalog_pdf_id:
+        String(formData.get("catalog_pdf_id") || "").trim() || null,
     })
     .eq("id", campaignId)
     .eq("company_id", ctx.company.id);

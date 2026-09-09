@@ -10,93 +10,30 @@ import { cn } from "@/lib/utils";
 
 const MAX_MB = 20;
 
-async function jsonPost(url: string, body: unknown) {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  let data: Record<string, unknown> = {};
-  try {
-    data = await res.json();
-  } catch {
-    /* resposta não-JSON (ex.: 413/504 da plataforma) */
-  }
-  return { res, data };
-}
-
-interface Tier {
-  min_qty: number;
-  price: number;
-}
-interface NVariant {
-  optionLabels: string[];
-  optionsByGroup: Record<string, string>;
-  attributes: Record<string, unknown>;
-  priceKind: string;
-  price: number | null;
-  priceTiers: { minQty: number; price: number }[] | null;
-  minQuantity: number | null;
-  unit: string | null;
-  leadTimeDays: number | null;
-}
 interface NItem {
   name: string;
   category: string | null;
-  kind: string;
   description: string | null;
-  attributes: Record<string, unknown>;
-  variationGroups: { name: string; values: string[] }[];
-  variants: NVariant[];
-  confidence: "ok" | "review";
   needsReview: boolean;
   notes: string | null;
+  variationGroups: { name: string; values: string[] }[];
 }
 interface Job {
   id: string;
   status: string;
-  file_name: string | null;
   extracted_items: { items: NItem[]; demo?: boolean } | NItem[];
-  extracted_count: number;
-  review_count: number;
   error_message: string | null;
 }
 
 type Phase = "idle" | "uploading" | "review" | "applying" | "done" | "error";
 
-function money(n: number) {
-  return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
-
-function variantLine(v: NVariant): string {
-  const spec =
-    v.optionLabels.join(" · ") ||
-    Object.entries(v.attributes)
-      .filter(([, x]) => x != null && x !== "")
-      .map(([k, x]) => `${k}: ${x}`)
-      .join(" · ") ||
-    "padrão";
-  let price: string;
-  if (v.priceKind === "quote") price = "sob orçamento";
-  else if (v.priceTiers?.length)
-    price = v.priceTiers.map((t) => `${t.minQty}un ${money(t.price)}`).join(" / ");
-  else if (v.price != null) price = money(v.price);
-  else price = "sem preço";
-  const qty = v.minQuantity ? ` · mín. ${v.minQuantity}${v.unit ?? ""}` : "";
-  return `${spec} → ${price}${qty}`;
-}
-
-export function PdfImportDialog({
-  hasExisting,
-  companyId,
-}: {
-  hasExisting: boolean;
-  companyId: string;
-}) {
+export function CatalogUploadDialog({ companyId }: { companyId: string }) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [open, setOpen] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
+  const [useForSending, setUseForSending] = useState(true);
+  const [importProducts, setImportProducts] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [job, setJob] = useState<Job | null>(null);
   const [items, setItems] = useState<NItem[]>([]);
@@ -105,6 +42,8 @@ export function PdfImportDialog({
 
   function reset() {
     setPhase("idle");
+    setUseForSending(true);
+    setImportProducts(false);
     setMsg(null);
     setJob(null);
     setItems([]);
@@ -113,23 +52,7 @@ export function PdfImportDialog({
     if (inputRef.current) inputRef.current.value = "";
   }
 
-  function showReview(j: Job) {
-    setJob(j);
-    const list = Array.isArray(j.extracted_items)
-      ? j.extracted_items
-      : (j.extracted_items?.items ?? []);
-    const demo = !Array.isArray(j.extracted_items) && !!j.extracted_items?.demo;
-    setItems(list);
-    setIsDemo(demo);
-    setApproved(
-      new Set(list.map((it, i) => (it.needsReview ? -1 : i)).filter((i) => i >= 0)),
-    );
-    setPhase("review");
-    setMsg(null);
-  }
-
   async function onFile(file: File) {
-    // validação no cliente (o servidor revalida)
     if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
       setPhase("error");
       setMsg("Selecione um arquivo PDF.");
@@ -140,67 +63,82 @@ export function PdfImportDialog({
       setMsg(`O PDF tem ${(file.size / 1024 / 1024).toFixed(1)} MB — o limite é ${MAX_MB} MB.`);
       return;
     }
+    if (!useForSending && !importProducts) {
+      setPhase("error");
+      setMsg("Marque ao menos uma opção: usar para envio ou importar produtos.");
+      return;
+    }
 
     setPhase("uploading");
     setMsg("Enviando o PDF…");
-
     try {
-      // 1) upload direto ao Supabase Storage, com a sessão do usuário.
-      //    A RLS do bucket `catalogs` só deixa gravar em `<company_id>/…`.
-      const path = `${companyId}/${crypto.randomUUID()}.pdf`;
       const supabase = createClient();
+      const fullPath = `${companyId}/${crypto.randomUUID()}.pdf`;
       const { error: upErr } = await supabase.storage
         .from("catalogs")
-        .upload(path, file, { contentType: "application/pdf", upsert: false });
+        .upload(fullPath, file, { contentType: "application/pdf", upsert: false });
       if (upErr) {
         setPhase("error");
-        setMsg(`Falha ao enviar o arquivo para o Storage: ${upErr.message}`);
+        setMsg(`Falha ao enviar o arquivo: ${upErr.message}`);
         return;
       }
 
-      // 2) registra o job (JSON pequeno — o binário nunca passa pela função)
-      setMsg("Processando o catálogo… isso pode levar até um minuto.");
-      const { res: upRes, data: up } = await jsonPost("/api/catalog/pdf/upload", {
-        path,
-        fileName: file.name,
-        size: file.size,
-        importProducts: true,
-        useForSending: false,
+      setMsg(importProducts ? "Analisando o catálogo…" : "Salvando…");
+      const res = await fetch("/api/catalog/pdf/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: fullPath,
+          fileName: file.name,
+          size: file.size,
+          useForSending,
+          importProducts,
+        }),
       });
-      if (!upRes.ok || !up.jobId) {
+      const up = await res.json().catch(() => ({}));
+      if (!res.ok) {
         setPhase("error");
-        setMsg((up.error as string) ?? "Falha ao registrar a importação.");
+        setMsg(up.error ?? "Falha ao registrar o catálogo.");
         return;
       }
 
-      // 4) poll — o 1º GET dispara o processamento (leitura do PDF pela IA)
-      const jobId = up.jobId as string;
+      if (!up.jobId) {
+        setPhase("done");
+        setMsg("Catálogo salvo e disponível para envio nas campanhas.");
+        router.refresh();
+        return;
+      }
+
+      // poll do job de importação
       const deadline = Date.now() + 120_000;
       let j: Job | null = null;
       while (Date.now() < deadline) {
-        const r = await fetch(`/api/catalog/pdf/jobs/${jobId}`);
+        const r = await fetch(`/api/catalog/pdf/jobs/${up.jobId}`);
         const d = await r.json().catch(() => ({}));
         j = (d.job as Job) ?? null;
-        if (j && (j.status === "review" || j.status === "error" || j.status === "applied")) break;
+        if (j && ["review", "error", "applied"].includes(j.status)) break;
         await new Promise((res) => setTimeout(res, 2500));
       }
-
-      if (!j) {
+      if (!j || j.status === "error") {
         setPhase("error");
-        setMsg("O processamento demorou mais que o esperado. Abra a página novamente em instantes.");
+        setMsg(
+          (j?.error_message ?? "Não foi possível ler o PDF para importar produtos.") +
+            (useForSending ? " O PDF continua salvo para envio." : ""),
+        );
         return;
       }
-      if (j.status === "error") {
-        setPhase("error");
-        setMsg(j.error_message ?? "Falha ao processar o PDF.");
-        return;
-      }
-      showReview(j);
+      const list = Array.isArray(j.extracted_items)
+        ? j.extracted_items
+        : (j.extracted_items?.items ?? []);
+      setJob(j);
+      setItems(list);
+      setIsDemo(!Array.isArray(j.extracted_items) && !!j.extracted_items?.demo);
+      setApproved(new Set(list.map((it, i) => (it.needsReview ? -1 : i)).filter((i) => i >= 0)));
+      setPhase("review");
+      setMsg(null);
     } catch (e) {
       setPhase("error");
-      setMsg(
-        `Erro ao enviar o PDF: ${e instanceof Error ? e.message : "falha de rede"}.`,
-      );
+      setMsg(`Erro: ${e instanceof Error ? e.message : "falha de rede"}.`);
     }
   }
 
@@ -216,19 +154,17 @@ export function PdfImportDialog({
       const data = await res.json();
       if (!res.ok) {
         setPhase("error");
-        setMsg(data.error ?? "Falha ao aplicar.");
+        setMsg(data.error ?? "Falha ao importar.");
         return;
       }
       setPhase("done");
-      setMsg(`${data.created} produto(s) adicionado(s) ao catálogo.`);
+      setMsg(`${data.created} produto(s) importado(s).`);
       router.refresh();
     } catch {
       setPhase("error");
-      setMsg("Erro de rede ao aplicar.");
+      setMsg("Erro de rede ao importar.");
     }
   }
-
-  const reviewCount = items.filter((i) => i.needsReview).length;
 
   return (
     <Dialog.Root
@@ -239,9 +175,8 @@ export function PdfImportDialog({
       }}
     >
       <Dialog.Trigger asChild>
-        <Button size="sm" variant={hasExisting ? "outline" : "default"} className="gap-1.5">
-          <FileUp className="size-3.5" />
-          {hasExisting ? "Importar outro PDF" : "Importar catálogo PDF"}
+        <Button size="sm" className="gap-1.5">
+          <FileUp className="size-3.5" /> Importar catálogo PDF
         </Button>
       </Dialog.Trigger>
       <Dialog.Portal>
@@ -250,13 +185,11 @@ export function PdfImportDialog({
           className={cn(
             "fixed z-50 flex max-h-[92vh] flex-col overflow-hidden bg-card shadow-2xl outline-none",
             "inset-x-0 bottom-0 rounded-t-2xl",
-            "sm:inset-auto sm:left-1/2 sm:top-1/2 sm:w-[44rem] sm:max-w-[95vw] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border",
+            "sm:inset-auto sm:left-1/2 sm:top-1/2 sm:w-[42rem] sm:max-w-[95vw] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border",
           )}
         >
           <div className="flex shrink-0 items-center justify-between border-b px-4 py-3">
-            <Dialog.Title className="text-sm font-semibold">
-              Importar catálogo PDF
-            </Dialog.Title>
+            <Dialog.Title className="text-sm font-semibold">Catálogo PDF</Dialog.Title>
             <Dialog.Close asChild>
               <Button variant="ghost" size="icon" aria-label="Fechar">
                 <X className="size-4" />
@@ -264,17 +197,43 @@ export function PdfImportDialog({
             </Dialog.Close>
           </div>
           <Dialog.Description className="sr-only">
-            Envie um PDF do catálogo para extrair produtos, preços e especificações.
+            Envie um catálogo PDF para usar no envio aos clientes e/ou importar produtos.
           </Dialog.Description>
 
           <div className="flex-1 overflow-y-auto p-4">
             {(phase === "idle" || phase === "uploading" || phase === "error") && (
               <div className="space-y-3">
-                <p className="text-sm text-muted-foreground">
-                  O sistema lê o PDF e transforma o conteúdo em produtos, atributos,
-                  variações e preços estruturados. O que não puder ser determinado
-                  com segurança fica marcado para revisão — nada é inventado.
-                </p>
+                <label className="flex items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-1 size-4"
+                    checked={useForSending}
+                    onChange={(e) => setUseForSending(e.target.checked)}
+                  />
+                  <span>
+                    <span className="font-medium">Usar este PDF para enviar aos clientes</span>
+                    <br />
+                    <span className="text-xs text-muted-foreground">
+                      O arquivo fica guardado e as campanhas de WhatsApp podem enviá-lo. Não gasta IA.
+                    </span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-1 size-4"
+                    checked={importProducts}
+                    onChange={(e) => setImportProducts(e.target.checked)}
+                  />
+                  <span>
+                    <span className="font-medium">Importar produtos deste PDF</span>
+                    <br />
+                    <span className="text-xs text-muted-foreground">
+                      A IA lê o PDF e você revisa os produtos antes de cadastrar. Nada é inventado.
+                    </span>
+                  </span>
+                </label>
+
                 <input
                   ref={inputRef}
                   type="file"
@@ -301,7 +260,7 @@ export function PdfImportDialog({
                   <p
                     className={cn(
                       "text-xs",
-                      phase === "error" ? "text-destructive" : "text-muted-foreground",
+                      phase === "error" ? "text-red-600 dark:text-red-400" : "text-muted-foreground",
                     )}
                   >
                     {msg}
@@ -314,30 +273,26 @@ export function PdfImportDialog({
               <div className="space-y-3">
                 {isDemo && (
                   <div className="rounded border border-amber-500/40 bg-amber-500/10 p-2 text-[11px] text-amber-700 dark:text-amber-400">
-                    Sem chave de IA configurada — esta é uma <strong>extração de
-                    exemplo</strong> (dados sintéticos), só para você ver o fluxo de
-                    revisão. Não represente isto como catálogo real da empresa.
+                    Sem chave de IA — extração de <strong>exemplo</strong> (dados sintéticos), só para ver o fluxo.
                   </div>
                 )}
-                <div className="flex flex-wrap items-center gap-2 text-xs">
-                  <span className="font-medium">{items.length} item(ns) extraído(s)</span>
-                  {reviewCount > 0 && (
-                    <span className="inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-700 dark:text-amber-400">
-                      <AlertTriangle className="size-3" />
-                      {reviewCount} para revisar
-                    </span>
-                  )}
-                  <span className="text-muted-foreground">
-                    {approved.size} selecionado(s) para importar
-                  </span>
+                <p className="text-xs font-medium">
+                  {items.length} produto(s) encontrado(s) · {approved.size} selecionado(s)
+                </p>
+                <div className="flex gap-2 text-xs">
+                  <button
+                    className="underline"
+                    onClick={() => setApproved(new Set(items.map((_, i) => i)))}
+                  >
+                    Selecionar todos
+                  </button>
+                  <button className="underline" onClick={() => setApproved(new Set())}>
+                    Limpar
+                  </button>
                 </div>
-
                 <div className="divide-y rounded-lg border">
                   {items.map((it, i) => (
-                    <label
-                      key={i}
-                      className="flex cursor-pointer items-start gap-3 p-3 text-sm"
-                    >
+                    <label key={i} className="flex cursor-pointer items-start gap-3 p-3 text-sm">
                       <input
                         type="checkbox"
                         className="mt-1"
@@ -353,9 +308,7 @@ export function PdfImportDialog({
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-medium">{it.name}</span>
                           {it.category && (
-                            <span className="text-xs text-muted-foreground">
-                              {it.category}
-                            </span>
+                            <span className="text-xs text-muted-foreground">{it.category}</span>
                           )}
                           {it.needsReview ? (
                             <span className="rounded bg-amber-500/15 px-1 text-[10px] text-amber-700 dark:text-amber-400">
@@ -367,40 +320,23 @@ export function PdfImportDialog({
                             </span>
                           )}
                         </div>
-                        {Object.keys(it.attributes).length > 0 && (
-                          <p className="text-xs text-muted-foreground">
-                            {Object.entries(it.attributes)
-                              .filter(([, x]) => x != null && x !== "")
-                              .map(([k, x]) => `${k}: ${x}`)
-                              .join(" · ")}
-                          </p>
+                        {it.description && (
+                          <p className="text-xs text-muted-foreground">{it.description}</p>
                         )}
                         {it.variationGroups.length > 0 && (
                           <p className="text-[11px] text-muted-foreground">
-                            Variações:{" "}
                             {it.variationGroups
                               .map((g) => `${g.name} (${g.values.join("/")})`)
-                              .join("  •  ")}
+                              .join(" • ")}
                           </p>
                         )}
-                        {it.variants.map((v, vi) => (
-                          <p key={vi} className="text-xs text-muted-foreground">
-                            – {variantLine(v)}
-                          </p>
-                        ))}
                         {it.notes && (
-                          <p className="text-xs text-amber-700 dark:text-amber-400">
-                            {it.notes}
-                          </p>
+                          <p className="text-xs text-amber-700 dark:text-amber-400">{it.notes}</p>
                         )}
                       </div>
                     </label>
                   ))}
                 </div>
-                <p className="text-[11px] text-muted-foreground">
-                  Ajustes finos de atributos e variações podem ser feitos depois na
-                  página de Produtos.
-                </p>
                 {msg && <p className="text-xs text-muted-foreground">{msg}</p>}
               </div>
             )}
@@ -418,16 +354,12 @@ export function PdfImportDialog({
               <>
                 <Dialog.Close asChild>
                   <Button variant="ghost" disabled={phase === "applying"}>
-                    Cancelar
+                    Depois
                   </Button>
                 </Dialog.Close>
-                <Button
-                  onClick={apply}
-                  disabled={phase === "applying" || approved.size === 0}
-                  className="gap-1.5"
-                >
+                <Button onClick={apply} disabled={phase === "applying" || approved.size === 0} className="gap-1.5">
                   {phase === "applying" && <Loader2 className="size-4 animate-spin" />}
-                  Importar {approved.size} item(ns)
+                  Importar {approved.size} produto(s)
                 </Button>
               </>
             ) : (
@@ -441,5 +373,3 @@ export function PdfImportDialog({
     </Dialog.Root>
   );
 }
-
-export type { Tier };

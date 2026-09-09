@@ -28,7 +28,7 @@ export async function POST(
   const { data: campaign } = await admin
     .from("campaigns")
     .select(
-      "id, channel, product_id, product_text, outreach_base_message, outreach_personalize_ai, outreach_send_catalog, outreach_catalog_product_id",
+      "id, channel, product_id, product_text, outreach_base_message, outreach_personalize_ai, outreach_send_catalog, outreach_catalog_pdf_id",
     )
     .eq("id", id)
     .eq("company_id", ctx.company.id)
@@ -75,10 +75,7 @@ export async function POST(
     ? await resolveCampaignCatalogPdf(
         admin,
         ctx.company.id,
-        {
-          outreach_catalog_product_id: campaign.outreach_catalog_product_id,
-          product_id: campaign.product_id,
-        },
+        { outreach_catalog_pdf_id: campaign.outreach_catalog_pdf_id, product_id: campaign.product_id },
         ctx.company.name,
       )
     : null;

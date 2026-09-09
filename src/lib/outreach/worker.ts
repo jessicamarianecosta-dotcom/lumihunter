@@ -54,7 +54,7 @@ export async function sendNextForCampaign(
   const { data: campaign } = await admin
     .from("campaigns")
     .select(
-      "id, company_id, name, channel, status, outreach_status, outreach_daily_limit, outreach_window_start, outreach_window_end, outreach_min_interval_seconds, outreach_timezone, outreach_send_catalog, outreach_catalog_product_id, outreach_consecutive_errors, outreach_last_sent_at, product_id",
+      "id, company_id, name, channel, status, outreach_status, outreach_daily_limit, outreach_window_start, outreach_window_end, outreach_min_interval_seconds, outreach_timezone, outreach_send_catalog, outreach_catalog_pdf_id, outreach_consecutive_errors, outreach_last_sent_at, product_id",
     )
     .eq("id", campaignId)
     .maybeSingle();
@@ -184,10 +184,7 @@ export async function sendNextForCampaign(
     ? await resolveCampaignCatalogPdf(
         admin,
         campaign.company_id,
-        {
-          outreach_catalog_product_id: campaign.outreach_catalog_product_id,
-          product_id: campaign.product_id,
-        },
+        { outreach_catalog_pdf_id: campaign.outreach_catalog_pdf_id, product_id: campaign.product_id },
         campaign.name,
       )
     : null;

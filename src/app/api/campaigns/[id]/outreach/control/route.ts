@@ -22,7 +22,7 @@ export async function POST(
   const admin = createAdminClient();
   const { data: campaign } = await admin
     .from("campaigns")
-    .select("id, channel, status, outreach_send_catalog, product_id, outreach_catalog_product_id")
+    .select("id, channel, status, outreach_send_catalog, product_id, outreach_catalog_pdf_id")
     .eq("id", id)
     .eq("company_id", ctx.company.id)
     .maybeSingle();

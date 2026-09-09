@@ -472,6 +472,7 @@ export type Database = {
           outreach_base_message: string | null
           outreach_personalize_ai: boolean
           outreach_send_catalog: boolean
+          outreach_catalog_pdf_id: string | null
           outreach_catalog_product_id: string | null
           outreach_consecutive_errors: number
           outreach_last_sent_at: string | null
@@ -510,6 +511,7 @@ export type Database = {
           outreach_base_message?: string | null
           outreach_personalize_ai?: boolean
           outreach_send_catalog?: boolean
+          outreach_catalog_pdf_id?: string | null
           outreach_catalog_product_id?: string | null
           outreach_consecutive_errors?: number
           outreach_last_sent_at?: string | null
@@ -548,6 +550,7 @@ export type Database = {
           outreach_base_message?: string | null
           outreach_personalize_ai?: boolean
           outreach_send_catalog?: boolean
+          outreach_catalog_pdf_id?: string | null
           outreach_catalog_product_id?: string | null
           outreach_consecutive_errors?: number
           outreach_last_sent_at?: string | null
@@ -706,6 +709,63 @@ export type Database = {
             columns: ["source_id"]
             isOneToOne: false
             referencedRelation: "catalog_sources"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      catalog_pdfs: {
+        Row: {
+          company_id: string
+          created_at: string
+          file_name: string
+          file_path: string
+          file_size: number | null
+          id: string
+          import_job_id: string | null
+          is_default: boolean
+          updated_at: string
+          uploaded_by: string | null
+          use_for_sending: boolean
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          file_name: string
+          file_path: string
+          file_size?: number | null
+          id?: string
+          import_job_id?: string | null
+          is_default?: boolean
+          updated_at?: string
+          uploaded_by?: string | null
+          use_for_sending?: boolean
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          file_name?: string
+          file_path?: string
+          file_size?: number | null
+          id?: string
+          import_job_id?: string | null
+          is_default?: boolean
+          updated_at?: string
+          uploaded_by?: string | null
+          use_for_sending?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "catalog_pdfs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "catalog_pdfs_import_job_id_fkey"
+            columns: ["import_job_id"]
+            isOneToOne: false
+            referencedRelation: "catalog_import_jobs"
             referencedColumns: ["id"]
           },
         ]
