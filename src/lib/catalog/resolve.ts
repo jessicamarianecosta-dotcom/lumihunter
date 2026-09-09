@@ -169,65 +169,115 @@ export function classifySearch(input: ClassifyInput): SearchOutcome {
 
   // exatamente 1 produto
   const product = matches[0];
-  const specText = requestedSpecs.map((s) => s.toLowerCase()).join(" ");
+  // "o que o cliente já disse" = consulta acumulada + especificações estruturadas
+  const said = `${query} ${requestedSpecs.join(" ")}`.toLowerCase();
   const activeVariants = product.variants.filter((v) => v.isActive);
 
-  // Se o cliente pediu especificações e nenhuma variante ativa casa com todas → PARTIAL
-  const matchingVariants = specText
-    ? activeVariants.filter((v) =>
-        requestedSpecs.every((spec) =>
-          [...v.optionLabels, ...Object.values(v.attributes).map(String)]
-            .join(" ")
-            .toLowerCase()
-            .includes(spec.toLowerCase()),
-        ),
-      )
-    : activeVariants;
-
-  const groupsWithoutChoice = missingSpecGroups(product, requestedSpecs);
-
-  if (specText && matchingVariants.length === 0) {
-    return {
-      kind: "PARTIAL",
-      query,
-      products: [product],
-      missingSpecs: groupsWithoutChoice,
-      sourcesChecked,
-      note: "Produto existe, mas a especificação pedida não aparece nas opções cadastradas.",
-    };
+  function labelChosen(label: string): boolean {
+    const words = label.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
+    return words.length > 0 && words.every((w) => said.includes(w));
   }
 
-  if (groupsWithoutChoice.length > 0 && matchingVariants.length !== 1) {
+  // variante cujos rótulos de opção já foram TODOS escolhidos pelo cliente
+  const chosenVariants = activeVariants.filter(
+    (v) => v.optionLabels.length > 0 && v.optionLabels.every(labelChosen),
+  );
+  if (chosenVariants.length === 1) {
     return {
-      kind: "PARTIAL",
+      kind: "FOUND",
       query,
-      products: [product],
-      missingSpecs: groupsWithoutChoice,
+      products: [{ ...product, variants: chosenVariants }],
       sourcesChecked,
     };
   }
 
-  return { kind: "FOUND", query, products: [product], sourcesChecked };
+  // cliente pediu uma especificação estruturada que nenhuma variante atende → PARTIAL
+  if (requestedSpecs.length > 0) {
+    const anyMatches = activeVariants.some((v) => {
+      const hay = [
+        ...v.optionLabels,
+        ...Object.values(v.attributes).map(String),
+      ]
+        .join(" ")
+        .toLowerCase();
+      return requestedSpecs.every((s) => hay.includes(s.toLowerCase()));
+    });
+    if (!anyMatches) {
+      return {
+        kind: "PARTIAL",
+        query,
+        products: [product],
+        missingSpecs: missingSpecGroups(product, said),
+        sourcesChecked,
+        note: "A especificação pedida não aparece nas opções cadastradas — ofereça as que existem.",
+      };
+    }
+  }
+
+  const groupsWithoutChoice = missingSpecGroups(product, said);
+
+  // produto sem variações OU cliente já escolheu tudo o que precisava → FOUND
+  if (activeVariants.length <= 1 || groupsWithoutChoice.length === 0) {
+    return { kind: "FOUND", query, products: [product], sourcesChecked };
+  }
+
+  // falta o cliente escolher uma opção → PARTIAL (mesma pergunta nas 3 respostas)
+  return {
+    kind: "PARTIAL",
+    query,
+    products: [product],
+    missingSpecs: groupsWithoutChoice,
+    sourcesChecked,
+  };
 }
 
 /**
- * Grupos de variação do produto para os quais o cliente ainda não deu uma
- * escolha (nome do grupo não aparece nos specs pedidos).
+ * Rótulos de opção do produto que o cliente AINDA NÃO escolheu (nenhuma palavra
+ * do rótulo aparece no que ele disse).
  */
 export function missingSpecGroups(
   product: CommercialProduct,
-  requestedSpecs: string[],
+  said: string,
 ): string[] {
-  const said = requestedSpecs.join(" ").toLowerCase();
+  const text = said.toLowerCase();
   const groups = new Set<string>();
   for (const v of product.variants) {
+    if (!v.isActive) continue;
     for (const label of v.optionLabels) {
-      // heurística: se nenhuma palavra do rótulo aparece nos specs, falta escolher
       const words = label.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
-      if (!words.some((w) => said.includes(w))) groups.add(label);
+      if (!words.some((w) => text.includes(w))) groups.add(label);
     }
   }
   return [...groups];
+}
+
+/**
+ * Restringe a lista de candidatos ao(s) produto(s) mais aderente(s) às palavras
+ * da consulta acumulada do cliente. Ex.: "caneca branca" → só a "Caneca branca"
+ * (2 palavras batem) em vez das 3 canecas (só "caneca" bate).
+ * Se todos empatam, devolve todos (segue AMBIGUOUS).
+ */
+export function narrowByQueryOverlap(
+  products: CommercialProduct[],
+  words: string[],
+): CommercialProduct[] {
+  const terms = words
+    .map((w) => w.toLowerCase().trim())
+    .filter((w) => w.length > 2);
+  if (terms.length === 0 || products.length <= 1) return products;
+
+  const score = (p: CommercialProduct) => {
+    const hay = `${p.name} ${p.description ?? ""} ${p.category ?? ""} ${p.variants
+      .flatMap((v) => v.optionLabels)
+      .join(" ")}`.toLowerCase();
+    return terms.filter((t) => hay.includes(t)).length;
+  };
+
+  const scored = products.map((p) => ({ p, s: score(p) }));
+  const max = Math.max(...scored.map((x) => x.s));
+  if (max === 0) return products;
+  const top = scored.filter((x) => x.s === max).map((x) => x.p);
+  return top.length < products.length ? top : products;
 }
 
 export type { SearchOutcomeKind };

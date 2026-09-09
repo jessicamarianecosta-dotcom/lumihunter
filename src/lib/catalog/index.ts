@@ -116,25 +116,42 @@ function renderProduct(p: CommercialProduct): string {
 }
 
 const HEADER: Record<SearchOutcome["kind"], string> = {
-  FOUND: "Produto encontrado na base comercial. Responda com base SÓ no que está aqui:",
+  FOUND: "Produto/variação identificado. Responda com base SÓ no que está aqui.",
   PARTIAL:
-    "Produto encontrado, mas falta especificação para definir preço/variação. Pergunte só o que falta:",
+    "Produto identificado, mas falta UMA informação para chegar ao preço. Faça só a próxima pergunta necessária (não pergunte o que o cliente já disse).",
   AMBIGUOUS:
-    "Vários produtos possíveis — apresente as opções ou pergunte qual, NÃO escolha sozinho:",
+    "Ainda há mais de um produto/modelo possível. A resposta deve APRESENTAR essas opções (só os nomes) e PERGUNTAR qual o cliente quer. NÃO escolha um por conta própria. NÃO cite preço ainda — o preço depende da escolha.",
   NOT_FOUND:
     "NADA na base comercial corresponde. NÃO invente. Diga que vai verificar essa opção.",
   SOURCE_UNAVAILABLE:
     "A fonte de catálogo está indisponível agora. NÃO invente preço. Ofereça encaminhar para atendimento.",
 };
 
+/**
+ * Regra que garante que as 3 respostas sugeridas sejam 3 REDAÇÕES da MESMA
+ * resposta — nunca 3 produtos/caminhos diferentes.
+ */
+const REPLY_RULE = `COMO ESCREVER AS 3 "suggested_replies":
+- São 3 REDAÇÕES ALTERNATIVAS da MESMA resposta: mesmo(s) produto(s), mesmo(s)
+  preço(s), mesma pergunta/intenção. Variam só tom, ordem da frase, emojis e CTA.
+- NUNCA use uma resposta para um produto e outra para outro produto.
+- Se ainda falta o cliente escolher (produto/modelo/variação/quantidade), TODAS
+  as 3 fazem a MESMA pergunta, apresentando as MESMAS opções.
+- Só cite preço/especificação que apareça na BASE COMERCIAL acima.`;
+
 /** Bloco de contexto pronto para o prompt. Puro. */
 export function renderCommercialContext(outcome: SearchOutcome): string {
-  const body = outcome.products.slice(0, 4).map(renderProduct).join("\n\n");
-  const missing =
-    outcome.kind === "PARTIAL" && outcome.missingSpecs?.length
-      ? `\n\nEspecificações a confirmar com o cliente: ${outcome.missingSpecs.join(", ")}.`
-      : "";
-  return `## BASE COMERCIAL\n${HEADER[outcome.kind]}\n\n${body || "(sem itens)"}${missing}`;
+  const body = outcome.products.slice(0, 6).map(renderProduct).join("\n\n");
+
+  let hint = "";
+  if (outcome.kind === "AMBIGUOUS") {
+    const names = outcome.products.map((p) => `"${p.name}"`).join(", ");
+    hint = `\n\nOpções a apresentar (todas, em cada resposta): ${names}. Peça ao cliente para escolher.`;
+  } else if (outcome.kind === "PARTIAL" && outcome.missingSpecs?.length) {
+    hint = `\n\nFalta o cliente escolher: ${outcome.missingSpecs.join(" ou ")}. Pergunte isso (mesma pergunta nas 3 respostas), mostrando o preço de cada opção quando houver.`;
+  }
+
+  return `## BASE COMERCIAL\n${HEADER[outcome.kind]}\n\n${body || "(sem itens)"}${hint}\n\n${REPLY_RULE}`;
 }
 
 /**

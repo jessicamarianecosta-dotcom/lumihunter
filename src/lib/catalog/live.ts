@@ -10,7 +10,7 @@
  */
 import { createAdminClient } from "@/lib/supabase/admin";
 import { precyCatalogProvider } from "./providers/precy";
-import { classifySearch } from "./resolve";
+import { classifySearch, narrowByQueryOverlap } from "./resolve";
 import type {
   CatalogSourceKind,
   CommercialProduct,
@@ -163,9 +163,14 @@ export async function livePrecySearch(args: {
     return words.length === 0 || words.some((w) => hay.includes(w));
   });
 
+  const commercial = narrowByQueryOverlap(
+    matches.map((p) => toCommercial(p, "precy_online")),
+    args.words,
+  );
+
   return classifySearch({
     query: args.query,
-    matches: matches.map((p) => toCommercial(p, "precy_online")),
+    matches: commercial,
     requestedSpecs: args.requestedSpecs,
     sourcesChecked: [{ source: "precy_online", ok: true }],
   });

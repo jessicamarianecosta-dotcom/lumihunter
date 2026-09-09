@@ -45,10 +45,23 @@ const LABELS: Record<SalesCoachResult["classification"], string> = {
 };
 export const CLASSIFICATION_LABELS = LABELS;
 
-/** Última mensagem recebida do lead (base para a consulta comercial). */
+/** Última mensagem recebida do lead. */
 function lastInbound(args: RunArgs): string | null {
   const m = [...args.messages].reverse().find((x) => x.direction === "inbound");
   return m?.body?.trim() || null;
+}
+
+/**
+ * Texto acumulado das últimas mensagens do lead — para a consulta comercial
+ * "lembrar" o que ele já pediu ("caneca" → "a branca" → "alça de coração"),
+ * fazendo só a próxima pergunta necessária.
+ */
+function recentInboundText(args: RunArgs, n = 4): string {
+  return args.messages
+    .filter((m) => m.direction === "inbound" && m.body)
+    .slice(-n)
+    .map((m) => m.body!.trim())
+    .join(" · ");
 }
 
 /** Palavras que indicam pergunta comercial (produto/preço/especificação). */
@@ -61,13 +74,14 @@ export async function runSalesCoach(args: RunArgs): Promise<SalesCoachResult> {
   // ── Base Comercial: consulta ANTES de responder, quando a última mensagem
   //    do lead é sobre produto/preço/especificação. Filtrada por companyId.
   const inbound = lastInbound(args);
+  const accumulated = recentInboundText(args);
   let commercialContext = "";
   let catalogOutcome: SearchOutcome["kind"] | undefined;
-  if (inbound && COMMERCIAL_HINT.test(inbound)) {
+  if (inbound && COMMERCIAL_HINT.test(accumulated)) {
     try {
       const { contextText, outcome } = await buildCommercialContext({
         companyId: args.companyId,
-        message: inbound,
+        message: accumulated,
       });
       commercialContext = contextText;
       catalogOutcome = outcome.kind;

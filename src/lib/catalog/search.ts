@@ -11,7 +11,7 @@ import type {
   ProductVariationGroupRow,
   ProductVariationOptionRow,
 } from "@/lib/supabase/database.types";
-import { classifySearch } from "./resolve";
+import { classifySearch, narrowByQueryOverlap } from "./resolve";
 import type {
   CommercialProduct,
   CommercialVariant,
@@ -180,10 +180,11 @@ export async function searchCatalog(args: {
   }
 
   const products = await loadProducts(admin, args.companyId, matchIds);
+  const narrowed = narrowByQueryOverlap(products, args.query.split(/\s+/));
 
   const outcome = classifySearch({
     query: args.query,
-    matches: products,
+    matches: narrowed,
     requestedSpecs: args.requestedSpecs,
     sourcesChecked: [{ source: "manual", ok: true }],
   });
