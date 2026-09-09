@@ -86,6 +86,10 @@ export async function updateCampaign(campaignId: string, formData: FormData) {
       channel,
       status: status as never,
       outreach_automatic: formData.get("outreach_automatic") === "on",
+      max_opportunities: (() => {
+        const n = Number(formData.get("max_opportunities"));
+        return Number.isFinite(n) && n >= 10 && n <= 5000 ? Math.round(n) : 250;
+      })(),
       ...(status === "active" && !formData.get("was_active")
         ? { started_at: new Date().toISOString() }
         : {}),

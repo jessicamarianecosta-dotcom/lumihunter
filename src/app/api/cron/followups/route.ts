@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendMessage as sendWhatsAppMessage } from "@/lib/whatsapp/service";
 import { drainRunningCampaigns } from "@/lib/outreach/worker";
+import { activeScaleRuns, runScaleBatch } from "@/lib/discovery/scale";
 import { normalizePhoneBR } from "@/lib/utils";
 
 export const maxDuration = 300;
@@ -24,8 +25,21 @@ export async function GET(req: NextRequest) {
   const admin = createAdminClient();
   const nowIso = new Date().toISOString();
 
+  // 0) Descoberta em escala — dá continuidade às rodadas ativas (baseline;
+  //    o pg_cron do Supabase roda com mais frequência quando configurado)
+  const scaleRuns = await activeScaleRuns(admin);
+  let scaleBatches = 0;
+  for (const runId of scaleRuns.slice(0, 15)) {
+    try {
+      const r = await runScaleBatch(admin, runId, { batches: 2 });
+      if (r.ran) scaleBatches += 1;
+    } catch (e) {
+      console.error("[cron/followups] scale", runId, e);
+    }
+  }
+
   // 1) Fila de prospecção (Fase 2) — orçamento de 200s, deixa o resto p/ follow-ups
-  const outreach = await drainRunningCampaigns(admin, { budgetMs: 200_000 });
+  const outreach = await drainRunningCampaigns(admin, { budgetMs: 160_000 });
 
   const { data: due } = await admin
     .from("campaign_targets")
@@ -103,5 +117,9 @@ export async function GET(req: NextRequest) {
     processed++;
   }
 
-  return NextResponse.json({ outreach, followups: { due: due?.length ?? 0, processed } });
+  return NextResponse.json({
+    discovery: { activeRuns: scaleRuns.length, batches: scaleBatches },
+    outreach,
+    followups: { due: due?.length ?? 0, processed },
+  });
 }

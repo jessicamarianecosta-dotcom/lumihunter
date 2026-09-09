@@ -9,7 +9,7 @@
  * Ponto de entrada único: `runDiscovery`. As rotas de API importam SÓ daqui.
  */
 import { normalizePhoneBR, normalizeEmail } from "@/lib/utils";
-import { buildDiscoveryQueries } from "./queries";
+import { buildDiscoveryQueries, buildScaleQueries } from "./queries";
 import { classifyResult, detectCompetitor } from "./classify";
 import { extractCompany } from "./extract";
 import { dedupeKeyFor, mergeByDedupeKey } from "./dedupe";
@@ -22,6 +22,7 @@ import type {
   DiscoveredCompany,
   DiscoveryRunResult,
   LeadSource,
+  QueryLogRow,
 } from "./types";
 
 export type {
@@ -36,6 +37,8 @@ export {
   getCampaignProductContext,
   deriveBuyerProfile,
 } from "./product-context";
+export { buildScaleQueries, buildDiscoveryQueries } from "./queries";
+export { expandRegions } from "./regions";
 
 const SOURCES: LeadSource[] = [tavilySource];
 
@@ -49,6 +52,11 @@ interface RunArgs {
   existingKeys?: Set<string>;
   perQuery?: number;
   maxCandidates?: number;
+  /**
+   * Consultas explícitas (descoberta em escala, batch a batch). Sem isto,
+   * usa o plano curto `buildDiscoveryQueries` (rodada única, legado).
+   */
+  queries?: string[];
 }
 
 function productKeywords(brief: CampaignBrief): string[] {
@@ -171,7 +179,7 @@ async function enrichCandidate(
 
 export async function runDiscovery(args: RunArgs): Promise<DiscoveryRunResult> {
   const { brief, existingKeys = new Set(), perQuery = 6, maxCandidates = 60 } = args;
-  const queries = buildDiscoveryQueries(brief);
+  const queries = args.queries ?? buildDiscoveryQueries(brief);
 
   const configured = SOURCES.filter((s) => s.isConfigured());
   if (configured.length === 0) throw new Error("Nenhuma fonte de descoberta configurada.");
@@ -179,6 +187,31 @@ export async function runDiscovery(args: RunArgs): Promise<DiscoveryRunResult> {
   const rawHits = (
     await Promise.all(configured.map((s) => s.search({ brief, queries, perQuery })))
   ).flat();
+
+  // ── Funil consulta a consulta ────────────────────────────────────────
+  const log = new Map<string, QueryLogRow>();
+  const logFor = (q: string | null): QueryLogRow => {
+    const key = q ?? "(sem consulta)";
+    let row = log.get(key);
+    if (!row) {
+      row = {
+        query: key,
+        source: configured[0]?.id ?? "tavily",
+        resultsReturned: 0,
+        newCandidates: 0,
+        duplicates: 0,
+        rejected: 0,
+        rejectBreakdown: {},
+        qualified: 0,
+        whatsappFound: 0,
+        whatsappConfirmed: 0,
+      };
+      log.set(key, row);
+    }
+    return row;
+  };
+  for (const q of queries) logFor(q);
+  for (const hit of rawHits) logFor(hit.query).resultsReturned += 1;
 
   // ── Classificação + normalização (hard filter: só "business") ──────────
   const discardReasons: Record<string, number> = {};
@@ -196,20 +229,37 @@ export async function runDiscovery(args: RunArgs): Promise<DiscoveryRunResult> {
     no_company: "Título não é o nome de uma empresa específica",
   };
   const normalized: DiscoveredCompany[] = [];
+  const keptByQuery = new Map<string, number>();
   for (const hit of rawHits) {
     const r = toCandidate(hit, brief);
     if ("discard" in r) {
       const label = HARD_FILTER_LABEL[r.discard] ?? r.discard;
       discardReasons[label] = (discardReasons[label] ?? 0) + 1;
+      const lr = logFor(hit.query);
+      lr.rejected += 1;
+      lr.rejectBreakdown[label] = (lr.rejectBreakdown[label] ?? 0) + 1;
       continue;
     }
     normalized.push(r);
+    keptByQuery.set(hit.query, (keptByQuery.get(hit.query) ?? 0) + 1);
   }
 
   // ── Deduplicação ─────────────────────────────────────────────────────
   let candidates = mergeByDedupeKey(normalized).filter(
     (c) => !existingKeys.has(c.dedupeKey),
   );
+
+  // candidatos NOVOS por consulta (o que sobrou depois de dedupe/rodadas anteriores)
+  const survivorsByQuery = new Map<string, number>();
+  for (const c of candidates)
+    survivorsByQuery.set(
+      c.discoveryQuery ?? "(sem consulta)",
+      (survivorsByQuery.get(c.discoveryQuery ?? "(sem consulta)") ?? 0) + 1,
+    );
+  for (const [q, row] of log) {
+    row.newCandidates = survivorsByQuery.get(q) ?? 0;
+    row.duplicates = Math.max(0, (keptByQuery.get(q) ?? 0) - row.newCandidates);
+  }
 
   // ── Enriquecimento + busca de WhatsApp (bounded, best-effort) ─────────
   // prioriza os que parecem comprador e ainda não têm WhatsApp confirmado
@@ -295,6 +345,14 @@ export async function runDiscovery(args: RunArgs): Promise<DiscoveryRunResult> {
     discardReasons[key] = (discardReasons[key] ?? 0) + 1;
   }
 
+  // ── Fecha o funil consulta a consulta ───────────────────────────────
+  for (const c of candidates) {
+    const row = logFor(c.discoveryQuery);
+    if (c.whatsapp) row.whatsappFound += 1;
+    if (c.whatsappVerified) row.whatsappConfirmed += 1;
+    if (c.prospectable) row.qualified += 1;
+  }
+
   return {
     rawCount: rawHits.length,
     screenedCount: candidates.length,
@@ -303,5 +361,6 @@ export async function runDiscovery(args: RunArgs): Promise<DiscoveryRunResult> {
     discardReasons,
     queries,
     aiUsed,
+    queryLog: [...log.values()],
   };
 }

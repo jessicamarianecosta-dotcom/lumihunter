@@ -74,6 +74,14 @@ export function DiscoveryPanel({ campaignId, regions, ready, configured, hasRun,
                 } na fila automaticamente${a.skipped ? ` · ${a.skipped} não passaram na validação final` : ""}.`
               : "."),
         );
+        if (data.scale?.mode === "scale" && data.scale.status === "active") {
+          setResult(
+            (r) =>
+              `${r ?? ""} A descoberta continua em segundo plano (batch 1 de ~${Math.ceil(
+                data.scale.plannedQueries / 12,
+              )}, alvo ${data.scale.target} leads) — novos resultados aparecem sozinhos.`,
+          );
+        }
         router.refresh();
       }
     } catch {
