@@ -11,7 +11,12 @@ import { generateText, isAiDemoMode } from "@/lib/ai";
 import { parseJsonFromText } from "@/lib/anthropic/client";
 import { logAiRun } from "@/lib/ai/log";
 import { buildCatalogGuard } from "@/lib/discovery/ai";
-import { renderTemplate, DEFAULT_BASE_MESSAGE, type LeadVars } from "./vars";
+import {
+  renderTemplate,
+  mentionsCompanyName,
+  DEFAULT_BASE_MESSAGE,
+  type LeadVars,
+} from "./vars";
 
 export interface OutreachLead {
   leadId: string;
@@ -31,6 +36,8 @@ export interface PreparedMessage {
   leadId: string;
   body: string;
   by: "ai" | "base";
+  /** true se a saída da IA citou o nome da empresa e foi substituída. */
+  nameLeakFixed?: boolean;
 }
 
 interface PrepareArgs {
@@ -44,39 +51,66 @@ interface PrepareArgs {
   personalizeAi: boolean;
   leads: OutreachLead[];
   userId: string | null;
+  /**
+   * Anonimiza a abordagem: a mensagem NUNCA cita o nome da empresa prospectada
+   * (regra do produto). Default true. O nome só é usado para auditoria.
+   */
+  anonymize?: boolean;
 }
 
 const SYSTEM = `Você é o "Copywriter" do LumiHunter — escreve a PRIMEIRA mensagem de
-prospecção B2B pelo WhatsApp, em nome da empresa usuária.
+prospecção comercial B2B pelo WhatsApp, em nome da empresa usuária.
 
 REGRAS ABSOLUTAS:
-- Mensagem curta (3-5 linhas): saudação + de onde veio o contato + o que a
-  empresa faz + pergunta simples (ex.: "posso te enviar nosso catálogo?").
+- Mensagem curta (3-5 linhas): saudação + o que a empresa oferece + convite para
+  ver o catálogo (ex.: "vou deixar nosso catálogo, se tiver interesse é só chamar").
+- NUNCA mencione o nome da empresa prospectada. Você NÃO recebe esse nome de
+  propósito. Nada de "Olá, <nome>!" ou "vi a <nome>". A abordagem tem de soar
+  como um contato comercial natural.
+- Pode usar: o SEGMENTO/tipo de negócio e o PRODUTO compatível. Nada além disso.
 - Só use FATOS do input. É PROIBIDO: "vi seu Instagram", "conheci sua empresa",
-  "um cliente indicou", "sei que vocês precisam de X", "vi que vocês estão
-  lançando". Se não está nas evidências, não afirme.
-- NÃO invente nome de pessoa. Se não houver "contato", use "Olá! Tudo bem?" ou
-  "Olá, pessoal da <empresa>!".
+  "um cliente indicou", "sei que vocês precisam de X", "notei que vocês estão
+  lançando". Não invente necessidade nem contato anterior.
+- NÃO invente nome de pessoa. Comece com "Olá! Tudo bem?".
 - Só mencione produtos/serviços que estão na lista "CATÁLOGO". Nunca cite item
-  fora dela.
-- Sem preço, sem promessa exagerada, sem emoji em excesso (no máx. 1-2).
-- Trate o destinatário como um par. Tom cordial e comercial.
+  fora dela. Sem preço, medida, prazo, material ou promoção.
+- Sem promessa exagerada, no máx. 1-2 emojis. Tom cordial e comercial.
 - Responda SOMENTE JSON.`;
 
+/** Regra do produto: a abordagem NUNCA cita o nome da empresa. Puro. */
+export function enforceNoName(
+  body: string,
+  companyName: string | null,
+  fallback: string,
+): { body: string; replaced: boolean } {
+  if (body.trim() && !mentionsCompanyName(body, companyName)) {
+    return { body: body.trim(), replaced: false };
+  }
+  return { body: fallback.trim(), replaced: true };
+}
+
 export async function prepareMessages(args: PrepareArgs): Promise<PreparedMessage[]> {
+  const anonymize = args.anonymize !== false;
   const base = args.baseMessage?.trim() || DEFAULT_BASE_MESSAGE;
 
   const renderBase = (l: OutreachLead): PreparedMessage => {
     const vars: LeadVars = {
-      empresa: l.companyName,
-      cidade: l.city,
-      estado: l.state,
+      // anonimizado: o nome NUNCA entra na mensagem
+      empresa: anonymize ? null : l.companyName,
+      cidade: anonymize ? null : l.city,
+      estado: anonymize ? null : l.state,
       segmento: l.segment,
-      nome_contato: l.contactName,
+      nome_contato: anonymize ? null : l.contactName,
       produto: args.productName,
-      site: l.website,
+      site: anonymize ? null : l.website,
     };
-    return { leadId: l.leadId, body: renderTemplate(base, vars).text, by: "base" };
+    let body = renderTemplate(base, vars).text;
+    // se o template base do usuário tiver o nome literal, cai no padrão
+    if (anonymize) {
+      const safe = enforceNoName(body, l.companyName, renderTemplate(DEFAULT_BASE_MESSAGE, vars).text);
+      body = safe.body;
+    }
+    return { leadId: l.leadId, body, by: "base" };
   };
 
   if (
@@ -95,10 +129,9 @@ export async function prepareMessages(args: PrepareArgs): Promise<PreparedMessag
     .map((l, i) =>
       [
         `#${i}`,
-        `empresa: ${l.companyName}`,
-        `segmento: ${l.segment ?? "—"}`,
-        `cidade/UF: ${l.city ?? "—"}${l.state ? "/" + l.state : ""}`,
-        `contato (nome): ${l.contactName ?? "não informado"}`,
+        // SEM o nome da empresa — de propósito
+        `segmento / tipo de negócio: ${l.segment ?? "não identificado"}`,
+        `produto compatível do catálogo: ${args.productName}`,
         `evidências reais: ${l.evidence.length ? l.evidence.join("; ") : "nenhuma além do segmento"}`,
       ].join("\n"),
     )
@@ -110,14 +143,14 @@ ${args.catalogItems.join(", ") || args.productName}
 ## Produto foco da campanha
 ${args.productName}
 
-## Mensagem base (referência de tom e estrutura)
+## Mensagem base (referência de tom e estrutura — repare que NÃO cita nome)
 ${base}
 
-## Empresas a abordar
+## Negócios a abordar (SEM nome — não invente um)
 ${list}
 
 ## Tarefa
-Para cada empresa, escreva a mensagem de WhatsApp.
+Para cada item, escreva a mensagem de WhatsApp. NUNCA cite o nome da empresa.
 { "items": [ { "index": 0, "message": "..." } ] }`;
 
   let items: { index: number; message: string }[] = [];
@@ -164,6 +197,10 @@ Para cada empresa, escreva a mensagem de WhatsApp.
       ai.length < 900 &&
       guard(ai)
     ) {
+      // validação pós-geração: a IA NÃO pode ter citado o nome da empresa
+      if (anonymize && mentionsCompanyName(ai, l.companyName)) {
+        return { ...renderBase(l), nameLeakFixed: true };
+      }
       return { leadId: l.leadId, body: ai.trim(), by: "ai" };
     }
     return renderBase(l);

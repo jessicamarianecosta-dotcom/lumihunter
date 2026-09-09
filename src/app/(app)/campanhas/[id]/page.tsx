@@ -412,6 +412,25 @@ export default async function CampanhaPage({
                 </select>
               </div>
 
+              <label className="flex items-start gap-2 text-sm sm:col-span-2">
+                <input
+                  type="checkbox"
+                  name="outreach_automatic"
+                  defaultChecked={campaign.outreach_automatic}
+                  className="mt-0.5 size-4"
+                />
+                <span>
+                  <span className="font-medium">Prospecção automática</span>
+                  <span className="block text-[11px] text-muted-foreground">
+                    Encontrou + validou (empresa real · região · não concorrente ·
+                    WhatsApp confirmado · produto do catálogo compatível) → gera a
+                    mensagem e envia pelo WhatsApp sozinho, sem você aprovar lead por
+                    lead. A mensagem nunca cita o nome da empresa. Só funciona com a
+                    campanha <strong>ativa</strong> e canal WhatsApp.
+                  </span>
+                </span>
+              </label>
+
               <div className="flex gap-2 sm:col-span-2">
                 <Button size="sm" type="submit">
                   Salvar alterações
@@ -467,16 +486,33 @@ export default async function CampanhaPage({
               ready={briefReady}
               configured={tavilyConfigured()}
               hasRun={!!runId}
+              automatic={campaign.outreach_automatic}
             />
           </CardContent>
         </Card>
       )}
 
-      {/* ── 2. Revisar e aprovar ─────────────────────────────────────── */}
+      {/* ── 2. Oportunidades / Revisar e aprovar ─────────────────────── */}
       <Card>
         <CardContent className="space-y-3 p-4">
-          <p className="text-sm font-medium">2. Revisar e aprovar</p>
-          <DiscoveryResults campaignId={id} rows={disc} />
+          <p className="text-sm font-medium">
+            {campaign.outreach_automatic
+              ? "2. Oportunidades encontradas"
+              : "2. Revisar e aprovar"}
+          </p>
+          {campaign.outreach_automatic && (
+            <p className="rounded-md bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400">
+              ⚡ Prospecção automática ativada. Cada lead que passa em todos os
+              critérios entra na fila e é abordado automaticamente pelo WhatsApp —
+              você não precisa aprovar lead por lead. A lista abaixo é só para
+              acompanhamento e auditoria.
+            </p>
+          )}
+          <DiscoveryResults
+            campaignId={id}
+            rows={disc}
+            automatic={campaign.outreach_automatic}
+          />
         </CardContent>
       </Card>
 

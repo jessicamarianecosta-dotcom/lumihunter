@@ -13,9 +13,11 @@ interface Props {
   configured: boolean;
   /** true se já houve pelo menos uma pesquisa concluída. */
   hasRun: boolean;
+  /** campanha em modo automático: encontrou + validou → envia sozinho. */
+  automatic?: boolean;
 }
 
-export function DiscoveryPanel({ campaignId, regions, ready, configured, hasRun }: Props) {
+export function DiscoveryPanel({ campaignId, regions, ready, configured, hasRun, automatic }: Props) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
@@ -61,10 +63,16 @@ export function DiscoveryPanel({ campaignId, regions, ready, configured, hasRun 
         );
         router.refresh();
       } else {
+        const a = data.automatic;
         setResult(
           `Nova pesquisa concluída: 🔥 ${data.found} ${
             data.found === 1 ? "lead de alto potencial" : "leads de alto potencial"
-          } · ${data.screened ?? 0} analisados · ${data.discarded ?? 0} descartados (auditoria).`,
+          } · ${data.screened ?? 0} analisados · ${data.discarded ?? 0} descartados (auditoria)` +
+            (a
+              ? `. ⚡ ${a.enqueued} ${
+                  a.enqueued === 1 ? "abordagem entrou" : "abordagens entraram"
+                } na fila automaticamente${a.skipped ? ` · ${a.skipped} não passaram na validação final` : ""}.`
+              : "."),
         );
         router.refresh();
       }
@@ -85,6 +93,9 @@ export function DiscoveryPanel({ campaignId, regions, ready, configured, hasRun 
         <p className="text-[13px] text-muted-foreground">
           O LumiHunter procura empresas reais que correspondem ao produto, ao
           público e à região desta campanha.
+          {automatic
+            ? " Como a prospecção automática está ativada, os leads validados já entram na fila e são abordados pelo WhatsApp — sem aprovação manual."
+            : ""}
           {hasRun
             ? " Cada nova pesquisa recomeça do zero e substitui a lista atual — os leads já aprovados continuam na campanha."
             : ""}

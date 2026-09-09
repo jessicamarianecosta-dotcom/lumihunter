@@ -477,6 +477,7 @@ export type Database = {
           outreach_consecutive_errors: number
           outreach_last_sent_at: string | null
           outreach_started_at: string | null
+          outreach_automatic: boolean
         }
         Insert: {
           audience_text?: string | null
@@ -516,6 +517,7 @@ export type Database = {
           outreach_consecutive_errors?: number
           outreach_last_sent_at?: string | null
           outreach_started_at?: string | null
+          outreach_automatic?: boolean
         }
         Update: {
           audience_text?: string | null
@@ -555,6 +557,7 @@ export type Database = {
           outreach_consecutive_errors?: number
           outreach_last_sent_at?: string | null
           outreach_started_at?: string | null
+          outreach_automatic?: boolean
         }
         Relationships: [
           {
@@ -2246,6 +2249,7 @@ export type Database = {
       outreach_queue: {
         Row: {
           attempt_count: number
+          auto_enqueued: boolean
           campaign_id: string
           campaign_target_id: string
           catalog_included: boolean
@@ -2272,6 +2276,7 @@ export type Database = {
         }
         Insert: {
           attempt_count?: number
+          auto_enqueued?: boolean
           campaign_id: string
           campaign_target_id: string
           catalog_included?: boolean
@@ -2298,6 +2303,7 @@ export type Database = {
         }
         Update: {
           attempt_count?: number
+          auto_enqueued?: boolean
           campaign_id?: string
           campaign_target_id?: string
           catalog_included?: boolean

@@ -99,9 +99,12 @@ function FitBar({ label, value }: { label: string; value: number | null }) {
 export function DiscoveryResults({
   campaignId,
   rows,
+  automatic = false,
 }: {
   campaignId: string;
   rows: DiscoveryRow[];
+  /** modo automático: sem aprovação manual — a lista é só acompanhamento. */
+  automatic?: boolean;
 }) {
   const router = useRouter();
   const [filter, setFilter] = useState<Filter>("qualified");
@@ -265,7 +268,7 @@ export function DiscoveryResults({
       </div>
 
       {/* ações em massa */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className={`flex flex-wrap items-center gap-2 ${automatic ? "hidden" : ""}`}>
         <Button size="sm" variant="outline" onClick={selectAll}>
           Selecionar todos
         </Button>
@@ -308,7 +311,7 @@ export function DiscoveryResults({
       <div className="grid gap-3 lg:grid-cols-2">
         {filtered.map((r) => {
           const q = qualLabel(r.qualification);
-          const canSelect = SELECTABLE.has(r.status);
+          const canSelect = !automatic && SELECTABLE.has(r.status);
           const isOpen = expanded.has(r.id);
           return (
             <div
@@ -318,7 +321,7 @@ export function DiscoveryResults({
               <div className="flex items-start gap-2.5">
                 <input
                   type="checkbox"
-                  className="mt-1 size-4"
+                  className={`mt-1 size-4 ${automatic ? "hidden" : ""}`}
                   checked={selected.has(r.id)}
                   disabled={!canSelect}
                   onChange={() => toggle(r.id)}

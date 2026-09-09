@@ -14,6 +14,7 @@ import {
   type CampaignBrief,
 } from "@/lib/discovery";
 import { resolveRowStatus, runStats } from "@/lib/discovery/run";
+import { approveDiscoveries, enqueueOutreach } from "@/lib/outreach/promote";
 
 export const maxDuration = 300;
 
@@ -37,7 +38,7 @@ export async function POST(
   const { data: campaign } = await admin
     .from("campaigns")
     .select(
-      "id, name, channel, product_id, product_text, audience_text, regions, segment, city, goal",
+      "id, name, channel, status, product_id, product_text, audience_text, regions, segment, city, goal, outreach_automatic, outreach_status, outreach_base_message, outreach_personalize_ai, outreach_send_catalog, outreach_catalog_pdf_id",
     )
     .eq("id", id)
     .eq("company_id", ctx.company.id)
@@ -323,10 +324,72 @@ export async function POST(
     .eq("id", id)
     .eq("company_id", ctx.company.id);
 
+  // ── Prospecção AUTOMÁTICA: promove + enfileira sem aprovação manual ────
+  let automatic:
+    | { promoted: number; enqueued: number; skipped: number; nameLeaksFixed: number; catalog: string | null }
+    | null = null;
+  if (
+    campaign.outreach_automatic &&
+    campaign.channel === "whatsapp" &&
+    campaign.status === "active" &&
+    campaign.outreach_status !== "paused" &&
+    stats.qualified > 0
+  ) {
+    try {
+      const promo = await approveDiscoveries(admin, {
+        companyId: ctx.company.id,
+        campaignId: id,
+        userId: ctx.userId,
+        discoveryRunId: runId,
+      });
+      const enq = await enqueueOutreach(admin, {
+        companyId: ctx.company.id,
+        companyName: ctx.company.name,
+        campaign: {
+          id: campaign.id,
+          name: campaign.name,
+          channel: campaign.channel,
+          status: campaign.status,
+          product_id: campaign.product_id,
+          product_text: campaign.product_text,
+          outreach_automatic: campaign.outreach_automatic,
+          outreach_base_message: campaign.outreach_base_message,
+          outreach_personalize_ai: campaign.outreach_personalize_ai,
+          outreach_send_catalog: campaign.outreach_send_catalog,
+          outreach_catalog_pdf_id: campaign.outreach_catalog_pdf_id,
+        },
+        userId: ctx.userId,
+        promoted: promo.promoted,
+        auto: true,
+      });
+      if (enq.enqueued > 0) {
+        await admin
+          .from("campaigns")
+          .update({
+            outreach_status: "running",
+            outreach_started_at: new Date().toISOString(),
+            outreach_consecutive_errors: 0,
+          })
+          .eq("id", id)
+          .eq("company_id", ctx.company.id);
+      }
+      automatic = {
+        promoted: promo.approved,
+        enqueued: enq.enqueued,
+        skipped: enq.skipped.length,
+        nameLeaksFixed: enq.nameLeaksFixed,
+        catalog: enq.catalog,
+      };
+    } catch (e) {
+      console.error("[campaigns/discover] prospecção automática", e);
+    }
+  }
+
   return NextResponse.json({
     runId,
     inserted,
     ...stats,
+    automatic,
     discardReasons: result.discardReasons,
     buyerProfileSource: buyerProfile.source,
     buyerSegments: buyerProfile.buyerSegments.slice(0, 8),

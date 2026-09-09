@@ -53,6 +53,75 @@ export function checkEligibility(i: EligibilityInput): EligibilityResult {
   return { ok: true };
 }
 
+/**
+ * Portão final ANTES de colocar um resultado na fila automática. Puro.
+ *
+ * Confirma tudo o que o produto exige para enviar SEM aprovação manual:
+ * empresa real individual · comprador potencial · região · não concorrente ·
+ * WhatsApp comercial confirmado · produto REAL do catálogo compatível ·
+ * catálogo disponível (se a campanha exige) · campanha ativa e automática ·
+ * mensagem pronta e sem o nome da empresa · sem opt-out · sem envio concorrente.
+ * Qualquer requisito obrigatório que falhe → NÃO ENVIAR.
+ */
+export interface AutoOutreachInput {
+  prospectable: boolean;
+  individualBusiness: boolean;
+  competitor: boolean;
+  resultType: string | null;
+  regionConfirmed: boolean;
+  whatsappVerified: boolean;
+  whatsapp: string | null;
+  productMatchName: string | null;
+  buyerFit: number | null;
+  productFit: number | null;
+  blocked: boolean;
+  campaignActive: boolean;
+  automaticEnabled: boolean;
+  channel: string;
+  hasMessage: boolean;
+  messageMentionsName: boolean;
+  catalogRequired: boolean;
+  catalogAvailable: boolean;
+  alreadyInFlightOrDone: boolean;
+  alreadyReplied: boolean;
+}
+
+export function validateProspectForAutomaticOutreach(
+  i: AutoOutreachInput,
+): EligibilityResult {
+  if (i.channel !== "whatsapp")
+    return { ok: false, code: "channel", reason: "Canal da campanha não é WhatsApp." };
+  if (!i.automaticEnabled)
+    return { ok: false, code: "not_automatic", reason: "Prospecção automática não está ativada." };
+  if (!i.campaignActive)
+    return { ok: false, code: "campaign_inactive", reason: "Campanha não está ativa." };
+  if (!i.prospectable || i.resultType !== "business" || !i.individualBusiness)
+    return { ok: false, code: "not_a_business", reason: "Não é uma empresa individual compradora." };
+  if (i.competitor)
+    return { ok: false, code: "competitor", reason: "Concorrente/fornecedor do mesmo produto." };
+  if (!i.regionConfirmed)
+    return { ok: false, code: "out_of_region", reason: "Região da campanha não confirmada." };
+  if ((i.buyerFit ?? 0) < 70)
+    return { ok: false, code: "weak_buyer", reason: "Sem evidência forte de que é comprador." };
+  if (!i.productMatchName || (i.productFit ?? 0) < 60)
+    return { ok: false, code: "no_product", reason: "Sem produto concreto do catálogo compatível." };
+  if (!i.whatsappVerified || !i.whatsapp)
+    return { ok: false, code: "no_whatsapp", reason: "WhatsApp comercial não confirmado." };
+  if (i.blocked)
+    return { ok: false, code: "opted_out", reason: "Contato optou por não receber mensagens." };
+  if (i.alreadyReplied)
+    return { ok: false, code: "already_replied", reason: "O contato já respondeu — atendimento humano." };
+  if (i.alreadyInFlightOrDone)
+    return { ok: false, code: "already_queued", reason: "Já existe uma abordagem para este contato." };
+  if (!i.hasMessage)
+    return { ok: false, code: "no_message", reason: "Nenhuma mensagem preparada." };
+  if (i.messageMentionsName)
+    return { ok: false, code: "name_leak", reason: "A mensagem citou o nome da empresa." };
+  if (i.catalogRequired && !i.catalogAvailable)
+    return { ok: false, code: "no_catalog", reason: "A campanha exige catálogo, mas nenhum PDF está disponível." };
+  return { ok: true };
+}
+
 /** Classifica um erro da API de WhatsApp: transitório (retry) ou permanente. */
 export function classifyWhatsAppError(error: string | undefined): {
   code: string;

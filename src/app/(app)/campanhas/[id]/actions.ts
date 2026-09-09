@@ -85,6 +85,7 @@ export async function updateCampaign(campaignId: string, formData: FormData) {
       city: regions[0] ?? null,
       channel,
       status: status as never,
+      outreach_automatic: formData.get("outreach_automatic") === "on",
       ...(status === "active" && !formData.get("was_active")
         ? { started_at: new Date().toISOString() }
         : {}),

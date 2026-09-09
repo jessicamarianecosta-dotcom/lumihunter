@@ -9,7 +9,8 @@
  */
 
 export interface LeadVars {
-  empresa: string;
+  /** null em modo anônimo — a mensagem nunca cita o nome da empresa. */
+  empresa: string | null;
   cidade: string | null;
   estado: string | null;
   segmento: string | null;
@@ -19,13 +20,60 @@ export interface LeadVars {
   site: string | null;
 }
 
+/**
+ * Mensagem base padrão — NUNCA cita o nome da empresa prospectada.
+ * Soa como uma abordagem comercial natural. {{produto}} é opcional: se vazio,
+ * o trecho é removido sem deixar frase quebrada.
+ */
 export const DEFAULT_BASE_MESSAGE = `Olá! Tudo bem? 😊
 
-Encontrei a {{empresa}} durante uma pesquisa sobre negócios de {{segmento}} em {{cidade}}.
+Trabalhamos com produtos personalizados para empresas e temos opções de {{produto}} que podem ser interessantes para o seu negócio.
 
-Somos da LumiLife Comunicação Visual e trabalhamos com materiais gráficos e personalizados.
+Preparamos nosso catálogo com as opções disponíveis 💛
 
-Queria saber se vocês estão precisando de algum material para a empresa. Posso te enviar nosso catálogo?`;
+Se tiver interesse em algum produto, é só nos chamar por aqui!`;
+
+// palavras genéricas que, sozinhas, não identificam a empresa (não contam como
+// "nome vazado" se aparecerem na mensagem)
+const GENERIC_NAME_WORDS = new Set([
+  "comercio", "comercial", "loja", "lojas", "empresa", "empresas", "servicos",
+  "servico", "ltda", "epp", "eireli", "mei", "me", "sa", "cia", "grupo",
+  "confeitaria", "padaria", "doceria", "cafe", "cafeteria", "restaurante",
+  "lanchonete", "bar", "salao", "barbearia", "clinica", "estudio", "atelie",
+  "hortifruti", "mercado", "mercearia", "boutique", "petshop", "pet", "shop",
+  "the", "do", "da", "de", "e", "and",
+]);
+
+function norm(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * A mensagem cita o nome da empresa prospectada? Puro.
+ * Regra do produto: a abordagem NUNCA pode mencionar o nome da empresa
+ * encontrada. Considera vazamento se o nome inteiro (normalizado) aparece OU
+ * se um token distintivo do nome (≥4 letras, não genérico) aparece.
+ */
+export function mentionsCompanyName(
+  message: string,
+  companyName: string | null | undefined,
+): boolean {
+  if (!companyName) return false;
+  const m = ` ${norm(message)} `;
+  const full = norm(companyName);
+  if (full.length >= 4 && m.includes(` ${full} `)) return true;
+
+  const tokens = full
+    .split(" ")
+    .filter((w) => w.length >= 4 && !GENERIC_NAME_WORDS.has(w) && !/^\d+$/.test(w));
+  return tokens.some((t) => m.includes(` ${t} `) || m.includes(` ${t}s `));
+}
 
 const KNOWN_VARS = [
   "empresa",
