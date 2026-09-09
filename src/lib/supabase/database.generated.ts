@@ -478,6 +478,7 @@ export type Database = {
           outreach_last_sent_at: string | null
           outreach_started_at: string | null
           outreach_automatic: boolean
+          max_opportunities: number
         }
         Insert: {
           audience_text?: string | null
@@ -518,6 +519,7 @@ export type Database = {
           outreach_last_sent_at?: string | null
           outreach_started_at?: string | null
           outreach_automatic?: boolean
+          max_opportunities?: number
         }
         Update: {
           audience_text?: string | null
@@ -558,6 +560,7 @@ export type Database = {
           outreach_last_sent_at?: string | null
           outreach_started_at?: string | null
           outreach_automatic?: boolean
+          max_opportunities?: number
         }
         Relationships: [
           {
@@ -1131,6 +1134,15 @@ export type Database = {
           started_at: string
           status: string
           updated_at: string
+          mode: string
+          scale_status: string | null
+          batch_count: number
+          candidates_count: number
+          target_opportunities: number | null
+          pending_queries: Json
+          used_queries: Json
+          regions_expanded: Json
+          last_batch_at: string | null
         }
         Insert: {
           ai_used?: boolean
@@ -1154,6 +1166,15 @@ export type Database = {
           started_at?: string
           status?: string
           updated_at?: string
+          mode?: string
+          scale_status?: string | null
+          batch_count?: number
+          candidates_count?: number
+          target_opportunities?: number | null
+          pending_queries?: Json
+          used_queries?: Json
+          regions_expanded?: Json
+          last_batch_at?: string | null
         }
         Update: {
           ai_used?: boolean
@@ -1177,6 +1198,15 @@ export type Database = {
           started_at?: string
           status?: string
           updated_at?: string
+          mode?: string
+          scale_status?: string | null
+          batch_count?: number
+          candidates_count?: number
+          target_opportunities?: number | null
+          pending_queries?: Json
+          used_queries?: Json
+          regions_expanded?: Json
+          last_batch_at?: string | null
         }
         Relationships: [
           {
@@ -1194,6 +1224,72 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      discovery_log: {
+        Row: {
+          id: string
+          company_id: string
+          campaign_id: string
+          discovery_run_id: string | null
+          batch: number
+          query: string
+          source: string
+          results_returned: number
+          new_candidates: number
+          duplicates: number
+          rejected: number
+          reject_breakdown: Json
+          qualified: number
+          whatsapp_found: number
+          whatsapp_confirmed: number
+          ready_to_send: number
+          sent: number
+          failed: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          company_id: string
+          campaign_id: string
+          discovery_run_id?: string | null
+          batch?: number
+          query: string
+          source?: string
+          results_returned?: number
+          new_candidates?: number
+          duplicates?: number
+          rejected?: number
+          reject_breakdown?: Json
+          qualified?: number
+          whatsapp_found?: number
+          whatsapp_confirmed?: number
+          ready_to_send?: number
+          sent?: number
+          failed?: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          company_id?: string
+          campaign_id?: string
+          discovery_run_id?: string | null
+          batch?: number
+          query?: string
+          source?: string
+          results_returned?: number
+          new_candidates?: number
+          duplicates?: number
+          rejected?: number
+          reject_breakdown?: Json
+          qualified?: number
+          whatsapp_found?: number
+          whatsapp_confirmed?: number
+          ready_to_send?: number
+          sent?: number
+          failed?: number
+          created_at?: string
+        }
+        Relationships: []
       }
       followup_sequences: {
         Row: {

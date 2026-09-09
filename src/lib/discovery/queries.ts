@@ -7,6 +7,7 @@
  * "empreendedores Curitiba".
  */
 import type { CampaignBrief, ProductContext } from "./types";
+import { expandRegions } from "./regions";
 
 /** Termos que descrevem "qualquer negócio" e produzem ruído se buscados sozinhos. */
 export const GENERIC_AUDIENCE = new Set([
@@ -109,4 +110,51 @@ export function buildDiscoveryQueries(brief: CampaignBrief): string[] {
     .map((q) => q.replace(/\s+/g, " ").trim())
     .filter((q, i, a) => q.length > 2 && a.indexOf(q) === i)
     .slice(0, 16);
+}
+
+/**
+ * DESCOBERTA EM ESCALA — plano completo de consultas para a rodada inteira.
+ *
+ * segmento de comprador × unidade de região (cidade + bairros) × variação de
+ * intenção ("", "contato", "whatsapp"). A ordem coloca as consultas mais
+ * amplas primeiro (cidade inteira) e vai afunilando por bairro — assim a
+ * primeira leva já traz resultado e o cron aprofunda depois.
+ *
+ * NÃO parte do nome do produto (isso acha concorrente). O teto existe só para
+ * não estourar a quota da fonte; o critério real de parada é
+ * `campaigns.max_opportunities`.
+ */
+export function buildScaleQueries(
+  brief: CampaignBrief,
+  opts: { maxQueries?: number; maxRegionUnits?: number } = {},
+): string[] {
+  const { maxQueries = 240, maxRegionUnits = 16 } = opts;
+
+  const buyerSegments = brief.buyerProfile.buyerSegments.length
+    ? brief.buyerProfile.buyerSegments
+    : deriveBuyerSegments(brief.productContext, brief.audience);
+
+  const segs = (buyerSegments.length ? buyerSegments : ["comércio local"]).slice(0, 10);
+  const regionUnits = expandRegions(
+    brief.regions.length ? brief.regions : ["Brasil"],
+    maxRegionUnits,
+  );
+
+  const intents = ["", "contato", "whatsapp"];
+  const wide: string[] = []; // cidade inteira
+  const deep: string[] = []; // por bairro
+
+  for (const seg of segs) {
+    for (const unit of regionUnits) {
+      const bucket = unit.district ? deep : wide;
+      for (const intent of intents) {
+        bucket.push(`${seg} ${unit.label}${intent ? " " + intent : ""}`);
+      }
+    }
+  }
+
+  return [...wide, ...deep]
+    .map((q) => q.replace(/\s+/g, " ").trim())
+    .filter((q, i, a) => q.length > 2 && a.indexOf(q) === i)
+    .slice(0, maxQueries);
 }

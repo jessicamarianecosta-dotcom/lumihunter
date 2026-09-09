@@ -412,6 +412,25 @@ export default async function CampanhaPage({
                 />
               </div>
               <div className="space-y-1.5">
+                <Label htmlFor="max_opportunities">Máximo de oportunidades</Label>
+                <select
+                  id="max_opportunities"
+                  name="max_opportunities"
+                  defaultValue={String(campaign.max_opportunities ?? 250)}
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  {[50, 100, 250, 500, 1000, 2000].map((n) => (
+                    <option key={n} value={n}>
+                      {n} leads válidos
+                    </option>
+                  ))}
+                </select>
+                <span className="block text-[11px] text-muted-foreground">
+                  A descoberta em escala procura em lotes (bairro a bairro) até
+                  atingir este número, esgotar as buscas ou a campanha sair de ativa.
+                </span>
+              </div>
+              <div className="space-y-1.5">
                 <Label htmlFor="status">Status</Label>
                 <select
                   id="status"

@@ -11,10 +11,16 @@ import {
   deriveBuyerProfile,
   TavilyError,
   tavilyErrorMessage,
+  buildScaleQueries,
   type CampaignBrief,
 } from "@/lib/discovery";
 import { resolveRowStatus, runStats } from "@/lib/discovery/run";
 import { approveDiscoveries, enqueueOutreach } from "@/lib/outreach/promote";
+import {
+  SCALE_BATCH_SIZE,
+  SCALE_PER_QUERY,
+  writeDiscoveryLog,
+} from "@/lib/discovery/scale";
 
 export const maxDuration = 300;
 
@@ -38,7 +44,7 @@ export async function POST(
   const { data: campaign } = await admin
     .from("campaigns")
     .select(
-      "id, name, channel, status, product_id, product_text, audience_text, regions, segment, city, goal, outreach_automatic, outreach_status, outreach_base_message, outreach_personalize_ai, outreach_send_catalog, outreach_catalog_pdf_id",
+      "id, name, channel, status, product_id, product_text, audience_text, regions, segment, city, goal, outreach_automatic, outreach_status, outreach_base_message, outreach_personalize_ai, outreach_send_catalog, outreach_catalog_pdf_id, max_opportunities",
     )
     .eq("id", id)
     .eq("company_id", ctx.company.id)
@@ -180,9 +186,23 @@ export async function POST(
     channelRequirement,
   };
 
+  // Descoberta em ESCALA para campanhas de WhatsApp: a rodada vira um processo.
+  // A 1ª leva roda agora (resultado imediato); o resto fica em pending_queries
+  // e o cron /api/cron/discovery drena batch a batch.
+  const scaleMode = campaign.channel === "whatsapp";
+  const scalePlan = scaleMode ? buildScaleQueries(brief) : [];
+  const batch1 = scaleMode ? scalePlan.slice(0, SCALE_BATCH_SIZE) : undefined;
+  const targetOpportunities = campaign.max_opportunities ?? 250;
+
   let result;
   try {
-    result = await runDiscovery({ brief, userId: ctx.userId });
+    result = await runDiscovery({
+      brief,
+      userId: ctx.userId,
+      queries: batch1,
+      perQuery: scaleMode ? SCALE_PER_QUERY : undefined,
+      maxCandidates: scaleMode ? 120 : undefined,
+    });
   } catch (e) {
     if (e instanceof TavilyError) {
       console.error("[campaigns/discover] tavily", e.code, e.message);
@@ -297,6 +317,18 @@ export async function POST(
     aiUsed: result.aiUsed,
   };
 
+  // ── Funil consulta a consulta (batch 1) ─────────────────────────────
+  await writeDiscoveryLog(
+    admin,
+    { companyId: ctx.company.id, campaignId: id, runId, batch: scaleMode ? 1 : 0 },
+    result.queryLog,
+  );
+
+  // ── Estado do processo de descoberta em escala ──────────────────────
+  const pendingQueries = scaleMode ? scalePlan.slice(SCALE_BATCH_SIZE) : [];
+  const scaleExhausted =
+    !scaleMode || pendingQueries.length === 0 || stats.qualified >= targetOpportunities;
+
   // ── Fecha a rodada e aponta a campanha para ela ──────────────────────
   await admin
     .from("discovery_runs")
@@ -312,6 +344,14 @@ export async function POST(
       no_whatsapp: stats.noWhatsapp,
       discarded: stats.discarded,
       ai_used: stats.aiUsed,
+      mode: scaleMode ? "scale" : "single",
+      scale_status: scaleMode ? (scaleExhausted ? "exhausted" : "active") : null,
+      batch_count: scaleMode ? 1 : 0,
+      candidates_count: stats.qualified,
+      target_opportunities: scaleMode ? targetOpportunities : null,
+      pending_queries: pendingQueries as unknown as Json,
+      used_queries: (batch1 ?? result.queries) as unknown as Json,
+      last_batch_at: new Date().toISOString(),
     })
     .eq("id", runId);
 
@@ -390,6 +430,16 @@ export async function POST(
     inserted,
     ...stats,
     automatic,
+    scale: scaleMode
+      ? {
+          mode: "scale",
+          target: targetOpportunities,
+          batch: 1,
+          plannedQueries: scalePlan.length,
+          pendingQueries: pendingQueries.length,
+          status: scaleExhausted ? "exhausted" : "active",
+        }
+      : { mode: "single" },
     discardReasons: result.discardReasons,
     buyerProfileSource: buyerProfile.source,
     buyerSegments: buyerProfile.buyerSegments.slice(0, 8),

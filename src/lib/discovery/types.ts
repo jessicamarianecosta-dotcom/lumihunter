@@ -185,6 +185,20 @@ export interface DiscoveredCompany {
   recommendedApproach: string | null;
 }
 
+/** Funil de UMA consulta — alimenta `discovery_log`. */
+export interface QueryLogRow {
+  query: string;
+  source: string;
+  resultsReturned: number;
+  newCandidates: number;
+  duplicates: number;
+  rejected: number;
+  rejectBreakdown: Record<string, number>;
+  qualified: number;
+  whatsappFound: number;
+  whatsappConfirmed: number;
+}
+
 export interface DiscoveryRunResult {
   /** Total de páginas cruas vindas das fontes. */
   rawCount: number;
@@ -198,4 +212,6 @@ export interface DiscoveryRunResult {
   discardReasons: Record<string, number>;
   queries: string[];
   aiUsed: boolean;
+  /** Funil consulta a consulta (para `discovery_log`). */
+  queryLog: QueryLogRow[];
 }
