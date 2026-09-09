@@ -51,7 +51,46 @@ export default async function CampanhaPage({
     .eq("id", id)
     .eq("company_id", ctx.company.id)
     .maybeSingle();
-  if (!campaign) notFound();
+
+  if (!campaign) {
+    // A campanha pode existir, mas em OUTRA empresa do usuário (empresa ativa
+    // errada no seletor). Nesse caso, mostra uma orientação em vez de 404.
+    const otherCompanyIds = ctx.memberships
+      .map((m) => m.company_id)
+      .filter((cid) => cid !== ctx.company.id);
+    const elsewhere =
+      otherCompanyIds.length > 0
+        ? (
+            await supabase
+              .from("campaigns")
+              .select("id, name, company_id, companies(name)")
+              .eq("id", id)
+              .in("company_id", otherCompanyIds)
+              .maybeSingle()
+          ).data
+        : null;
+
+    if (!elsewhere) notFound();
+
+    const otherName =
+      (elsewhere.companies as { name: string } | null)?.name ?? "outra empresa";
+    return (
+      <div className="mx-auto max-w-md space-y-4 py-16 text-center">
+        <h1 className="text-xl font-semibold">Campanha em outra empresa</h1>
+        <p className="text-sm text-muted-foreground">
+          A campanha <strong>{elsewhere.name}</strong> pertence a{" "}
+          <strong>{otherName}</strong>. Troque a empresa ativa no seletor (canto
+          superior) para abri-la.
+        </p>
+        <Link
+          href="/campanhas"
+          className="inline-flex items-center gap-1 text-sm text-accent hover:underline"
+        >
+          <ArrowLeft className="size-4" /> Voltar para Campanhas
+        </Link>
+      </div>
+    );
+  }
 
   const runId = campaign.current_discovery_run_id;
 
