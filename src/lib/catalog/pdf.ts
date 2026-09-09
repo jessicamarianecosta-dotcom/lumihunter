@@ -115,6 +115,11 @@ export async function processImportJob(jobId: string, client?: Db): Promise<void
         error_message: null,
       })
       .eq("id", jobId);
+    await admin
+      .from("catalog_sources")
+      .update({ status: "review" })
+      .eq("company_id", job.company_id)
+      .eq("kind", "pdf");
     await logCatalogEvent(job.company_id, "pdf_processed", {
       job: jobId,
       items: items.length,
