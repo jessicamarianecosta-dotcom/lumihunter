@@ -129,6 +129,58 @@ function notBusiness(resultType: ResultType, reason: string): Classification {
   return { resultType, businessType: "unknown", sourceQuality: 10, reason };
 }
 
+// ── Concorrente / fornecedor do mesmo produto ────────────────────────────
+const SUPPLIER_VERBS = [
+  "fabricamos", "produzimos", "confeccionamos", "imprimimos", "orçamento de",
+  "orcamento de", "sob encomenda", "trabalhamos com impressão",
+  "trabalhamos com impressao", "especializada em impressão", "produção de",
+  "producao de", "gráfica especializada", "grafica especializada",
+  "fábrica de", "fabrica de", "fornecemos", "atacado de",
+];
+
+export interface CompetitorCheck {
+  competitor: boolean;
+  reason?: string;
+}
+
+/**
+ * `excludedProfiles` vem do perfil de comprador (derivado do produto): quem
+ * FABRICA/VENDE o mesmo produto. Se o resultado bate com isso como atividade
+ * principal, é concorrente/fornecedor — nunca vira lead.
+ */
+export function detectCompetitor(
+  hit: { title: string; url: string; content: string },
+  excludedProfiles: string[],
+  productKeywords: string[],
+): CompetitorCheck {
+  const title = norm(hit.title);
+  const text = norm(`${hit.title} ${hit.content}`.slice(0, 400));
+  const host = norm(hostOf(hit.url));
+
+  const ex = excludedProfiles.map(norm).filter((s) => s.length > 3);
+  const pk = productKeywords.map(norm).filter((s) => s.length > 3);
+
+  // perfil de exclusão no título ou no domínio = concorrente direto
+  const hitInTitle = ex.find((e) => title.includes(e) || host.includes(e.replace(/\s+/g, "")));
+  if (hitInTitle)
+    return { competitor: true, reason: `Perfil de fornecedor/concorrente ("${hitInTitle}")` };
+
+  // keyword do produto + verbo de fornecedor no texto = concorrente
+  const kwHit = pk.find((k) => text.includes(k));
+  const verbHit = SUPPLIER_VERBS.map(norm).find((v) => text.includes(v));
+  if (kwHit && verbHit)
+    return {
+      competitor: true,
+      reason: `Oferece o mesmo produto como serviço ("${verbHit} ... ${kwHit}")`,
+    };
+
+  return { competitor: false };
+}
+
+function norm(s: string): string {
+  return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+}
+
 const BUSINESS_TYPE_HINTS: [BusinessType, string[]][] = [
   ["confectionery", ["confeitaria", "confeitaria", "doceria", "doces", "bolo", "brigadeiro", "cupcake", "docinho", "confeiteira", "confeiteiro"]],
   ["bakery", ["padaria", "panificadora", "pães", "paes", "panificação"]],

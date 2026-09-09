@@ -8,6 +8,7 @@ import {
   runDiscovery,
   discoverySourcesConfigured,
   getCampaignProductContext,
+  deriveBuyerProfile,
   TavilyError,
   tavilyErrorMessage,
   type CampaignBrief,
@@ -91,15 +92,30 @@ export async function POST(
     );
   }
 
+  const buyerProfile = await deriveBuyerProfile(
+    ctx.company.id,
+    productContext,
+    audience,
+  );
+
+  const channelRequirement: "whatsapp" | "email" | "none" =
+    campaign.channel === "whatsapp"
+      ? "whatsapp"
+      : campaign.channel === "email"
+        ? "email"
+        : "none";
+
   const brief: CampaignBrief = {
     id: campaign.id,
     companyId: ctx.company.id,
     name: campaign.name,
     product: productContext.name,
     productContext,
+    buyerProfile,
     audience,
     regions,
     channel: campaign.channel,
+    channelRequirement,
   };
 
   const { data: existing } = await admin
@@ -128,9 +144,8 @@ export async function POST(
 
   // ── Persistência ──────────────────────────────────────────────────────
   const rows = result.candidates.map((c) => {
-    const qualified =
-      (c.qualification === "high" || c.qualification === "medium") &&
-      c.productFitScore >= 30;
+    const qualified = c.qualification === "high" || c.qualification === "medium";
+    const status = c.competitor ? "rejected" : qualified ? "qualified" : "discovered";
     return {
       company_id: ctx.company.id,
       campaign_id: id,
@@ -155,16 +170,21 @@ export async function POST(
       result_type: c.resultType,
       business_type: c.businessType,
       source_quality: c.sourceQuality,
+      competitor: c.competitor,
+      whatsapp_verified: c.whatsappVerified,
+      channel_requirement: channelRequirement,
       score: c.score,
+      buyer_fit_score: c.buyerFitScore,
       product_fit_score: c.productFitScore,
       business_fit_score: c.businessFitScore,
       qualification: c.qualification,
       qualification_reason: c.qualificationReason,
       qualification_signals: c.qualificationSignals as unknown as Json,
       evidence: c.evidence as unknown as Json,
+      discard_reason: c.discardReason,
       qualified_by: c.qualifiedBy,
       recommended_approach: c.recommendedApproach,
-      status: qualified ? "qualified" : "discovered",
+      status,
     };
   });
 
@@ -194,11 +214,19 @@ export async function POST(
     found: result.candidates.length,
     inserted,
     qualified: rows.filter((r) => r.status === "qualified").length,
+    prospectable: result.candidates.filter(
+      (c) => !c.competitor && c.whatsappVerified,
+    ).length,
+    competitors: result.candidates.filter((c) => c.competitor).length,
+    noWhatsapp: result.candidates.filter(
+      (c) => !c.competitor && !c.whatsappVerified,
+    ).length,
     discarded: result.discardedCount,
     discardReasons: result.discardReasons,
     rawResults: result.rawCount,
     queries: result.queries.length,
     aiUsed: result.aiUsed,
-    productSource: productContext.source,
+    buyerProfileSource: buyerProfile.source,
+    buyerSegments: buyerProfile.buyerSegments.slice(0, 8),
   });
 }

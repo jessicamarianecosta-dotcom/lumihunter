@@ -1382,6 +1382,11 @@ export type Database = {
           approved_by: string | null
           business_fit_score: number | null
           business_type: string | null
+          buyer_fit_score: number | null
+          channel_requirement: string | null
+          competitor: boolean
+          discard_reason: string | null
+          whatsapp_verified: boolean
           evidence: Json
           product_fit_score: number | null
           result_type: string | null
@@ -1425,6 +1430,11 @@ export type Database = {
           approved_by?: string | null
           business_fit_score?: number | null
           business_type?: string | null
+          buyer_fit_score?: number | null
+          channel_requirement?: string | null
+          competitor?: boolean
+          discard_reason?: string | null
+          whatsapp_verified?: boolean
           evidence?: Json
           product_fit_score?: number | null
           result_type?: string | null
@@ -1468,6 +1478,11 @@ export type Database = {
           approved_by?: string | null
           business_fit_score?: number | null
           business_type?: string | null
+          buyer_fit_score?: number | null
+          channel_requirement?: string | null
+          competitor?: boolean
+          discard_reason?: string | null
+          whatsapp_verified?: boolean
           evidence?: Json
           product_fit_score?: number | null
           result_type?: string | null

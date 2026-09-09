@@ -1,18 +1,20 @@
 /**
- * Descoberta de leads — orquestrador (Fase 1, prospecção cirúrgica).
+ * Descoberta de leads — orquestrador (Fase 1, prospecção por COMPRADOR).
  *
- *   catálogo do produto → consultas → fonte(s) → CLASSIFICAÇÃO (hard filter:
- *   só "business") → normalização → deduplicação → (enriquecimento por empresa)
- *   → qualificação (product fit dominante) → refino IA opcional
+ *   catálogo → PERFIL DE COMPRADOR (quem compra, não quem fabrica) → consultas
+ *   por comprador+região → fonte(s) → classificação (hard filter + concorrente)
+ *   → normalização → dedupe → enriquecimento + BUSCA DE WHATSAPP → qualificação
+ *   (buyer_fit + product_fit + whatsapp) → refino IA opcional
  *
  * Ponto de entrada único: `runDiscovery`. As rotas de API importam SÓ daqui.
  */
 import { normalizePhoneBR, normalizeEmail } from "@/lib/utils";
 import { buildDiscoveryQueries } from "./queries";
-import { classifyResult } from "./classify";
+import { classifyResult, detectCompetitor } from "./classify";
 import { extractCompany } from "./extract";
 import { dedupeKeyFor, mergeByDedupeKey } from "./dedupe";
 import { qualify, heuristicApproach } from "./score";
+import { findVerifiedWhatsApp } from "./whatsapp";
 import { refineWithAI } from "./ai";
 import { tavilySource } from "./sources/tavily-source";
 import type {
@@ -27,11 +29,14 @@ export type {
   DiscoveredCompany,
   DiscoveryRunResult,
   ProductContext,
+  BuyerProfile,
 } from "./types";
 export { TavilyError, tavilyErrorMessage } from "@/lib/tavily";
-export { getCampaignProductContext } from "./product-context";
+export {
+  getCampaignProductContext,
+  deriveBuyerProfile,
+} from "./product-context";
 
-/** Fontes ativas na Fase 1. Fase 3 adiciona itens aqui. */
 const SOURCES: LeadSource[] = [tavilySource];
 
 export function discoverySourcesConfigured(): boolean {
@@ -46,19 +51,37 @@ interface RunArgs {
   maxCandidates?: number;
 }
 
+function productKeywords(brief: CampaignBrief): string[] {
+  return [brief.productContext.name, ...brief.productContext.keywords]
+    .join(" ")
+    .toLowerCase()
+    .split(/[\s,/]+/)
+    .filter((w) => w.length > 3)
+    .filter((w, i, a) => a.indexOf(w) === i);
+}
+
 function toCandidate(
-  hit: { title: string; url: string; content: string; query: string; source: string; relevance?: number | null },
-  regions: string[],
+  hit: { title: string; url: string; content: string; rawContent?: string | null; query: string; source: string; relevance?: number | null },
+  brief: CampaignBrief,
 ): DiscoveredCompany | { discard: string } {
   const cls = classifyResult(hit);
   if (cls.resultType !== "business") return { discard: cls.resultType };
 
   const ex = extractCompany(
-    { ...hit, rawContent: null, relevance: hit.relevance ?? null },
-    regions,
+    { ...hit, rawContent: hit.rawContent ?? null, relevance: hit.relevance ?? null },
+    brief.regions,
   );
   if (!ex.ok || !ex.company) return { discard: "no_company" };
   const c = ex.company;
+
+  const comp = detectCompetitor(
+    hit,
+    brief.buyerProfile.excludedProfiles,
+    productKeywords(brief),
+  );
+  const wa = findVerifiedWhatsApp(
+    `${hit.title}\n${hit.content}\n${hit.rawContent ?? ""}`,
+  );
 
   return {
     companyName: c.companyName,
@@ -70,7 +93,7 @@ function toCandidate(
     country: "BR",
     address: c.address,
     phone: normalizePhoneBR(c.phone),
-    whatsapp: normalizePhoneBR(c.whatsapp),
+    whatsapp: wa.number ?? normalizePhoneBR(c.whatsapp),
     email: normalizeEmail(c.email),
     website: c.website,
     instagram: c.instagram,
@@ -89,16 +112,56 @@ function toCandidate(
     resultType: "business",
     businessType: cls.businessType,
     sourceQuality: cls.sourceQuality,
+    competitor: comp.competitor,
+    whatsappVerified: wa.verified,
     score: 0,
+    buyerFitScore: 0,
     productFitScore: 0,
     businessFitScore: 0,
     qualification: "low",
-    qualificationReason: "",
+    qualificationReason: comp.competitor ? comp.reason ?? "" : "",
     qualificationSignals: [],
     evidence: [],
+    discardReason: comp.competitor ? comp.reason ?? "Concorrente" : null,
     qualifiedBy: "heuristic",
     recommendedApproach: null,
   };
+}
+
+async function enrichCandidate(
+  c: DiscoveredCompany,
+  brief: CampaignBrief,
+  opts: { lookupWhatsApp: boolean },
+): Promise<void> {
+  const queries: string[] = [];
+  if (!c.website && c.city) queries.push(`${c.companyName} ${c.city}`);
+  if (opts.lookupWhatsApp && !c.whatsappVerified && c.city)
+    queries.push(`${c.companyName} ${c.city} whatsapp`);
+  if (queries.length === 0) return;
+
+  const hits = await tavilySource.search({ brief, queries, perQuery: 3 });
+  for (const h of hits) {
+    const text = `${h.title}\n${h.content}\n${h.rawContent ?? ""}`;
+    const wa = findVerifiedWhatsApp(text);
+    if (wa.verified && !c.whatsappVerified) {
+      c.whatsappVerified = true;
+      if (wa.number) c.whatsapp = wa.number;
+    }
+    const cl = classifyResult(h);
+    if (cl.resultType !== "business") continue;
+    const ex = extractCompany({ ...h, rawContent: null, relevance: null }, brief.regions);
+    if (!ex.ok || !ex.company) continue;
+    const e = ex.company;
+    c.website ??= e.website;
+    c.instagram ??= e.instagram;
+    c.phone ??= normalizePhoneBR(e.phone);
+    c.email ??= normalizeEmail(e.email);
+    if (!c.description && e.description) c.description = e.description;
+    if (!c.state && e.state) c.state = e.state;
+    if (c.businessType === "company" && cl.businessType !== "company")
+      c.businessType = cl.businessType;
+    if (e.website) c.sourceQuality = Math.max(c.sourceQuality, 100);
+  }
 }
 
 export async function runDiscovery(args: RunArgs): Promise<DiscoveryRunResult> {
@@ -117,7 +180,7 @@ export async function runDiscovery(args: RunArgs): Promise<DiscoveryRunResult> {
   let discarded = 0;
   const normalized: DiscoveredCompany[] = [];
   for (const hit of rawHits) {
-    const r = toCandidate(hit, brief.regions);
+    const r = toCandidate(hit, brief);
     if ("discard" in r) {
       discarded++;
       discardReasons[r.discard] = (discardReasons[r.discard] ?? 0) + 1;
@@ -126,48 +189,28 @@ export async function runDiscovery(args: RunArgs): Promise<DiscoveryRunResult> {
     normalized.push(r);
   }
 
-  // ── Deduplicação (lote + contra o que já existe) ──────────────────────
+  // ── Deduplicação ─────────────────────────────────────────────────────
   let candidates = mergeByDedupeKey(normalized).filter(
     (c) => !existingKeys.has(c.dedupeKey),
   );
 
-  // ── Enriquecimento por empresa (2ª etapa, best-effort e limitado) ─────
-  const needEnrich = candidates
-    .filter((c) => !c.website && !!c.city && (!c.description || c.description.length < 60))
-    .slice(0, 8);
-  if (needEnrich.length && configured.some((s) => s.id === "tavily")) {
-    for (const c of needEnrich) {
+  // ── Enriquecimento + busca de WhatsApp (bounded, best-effort) ─────────
+  // prioriza os que parecem comprador e ainda não têm WhatsApp confirmado
+  const enrichTargets = candidates
+    .filter((c) => !c.competitor)
+    .filter((c) => !c.website || !c.whatsappVerified)
+    .slice(0, 15);
+  if (configured.some((s) => s.id === "tavily")) {
+    for (const c of enrichTargets) {
       try {
-        const hits = await tavilySource.search({
-          brief,
-          queries: [`${c.companyName} ${c.city}`],
-          perQuery: 3,
-        });
-        for (const h of hits) {
-          const cls = classifyResult(h);
-          if (cls.resultType !== "business") continue;
-          const ex = extractCompany({ ...h, rawContent: null, relevance: null }, brief.regions);
-          if (!ex.ok || !ex.company) continue;
-          const e = ex.company;
-          c.website ??= e.website;
-          c.instagram ??= e.instagram;
-          c.phone ??= normalizePhoneBR(e.phone);
-          c.whatsapp ??= normalizePhoneBR(e.whatsapp);
-          c.email ??= normalizeEmail(e.email);
-          if (!c.description && e.description) c.description = e.description;
-          if (!c.state && e.state) c.state = e.state;
-          if (c.businessType === "company" && cls.businessType !== "company")
-            c.businessType = cls.businessType;
-          if (e.website) c.sourceQuality = Math.max(c.sourceQuality, 100);
-        }
+        await enrichCandidate(c, brief, { lookupWhatsApp: true });
       } catch {
-        // enriquecimento é opcional — a busca principal já entregou o candidato
-        break;
+        break; // enriquecimento é opcional
       }
     }
   }
 
-  // ── Qualificação heurística (product fit dominante) ───────────────────
+  // ── Qualificação heurística ─────────────────────────────────────────
   for (const c of candidates) {
     const q = qualify(
       {
@@ -185,31 +228,39 @@ export async function runDiscovery(args: RunArgs): Promise<DiscoveryRunResult> {
         resultType: c.resultType,
         businessType: c.businessType,
         sourceQuality: c.sourceQuality,
+        competitor: c.competitor,
+        whatsappVerified: c.whatsappVerified,
+        channelRequirement: brief.channelRequirement,
         regions: brief.regions,
+        buyerSegments: brief.buyerProfile.buyerSegments,
       },
       brief.productContext,
     );
     c.score = q.score;
+    c.buyerFitScore = q.buyerFitScore;
     c.productFitScore = q.productFitScore;
     c.businessFitScore = q.businessFitScore;
     c.qualification = q.qualification;
     c.qualificationReason = q.reason;
     c.qualificationSignals = q.signals;
     c.evidence = q.evidence;
+    c.discardReason = q.discardReason;
     c.recommendedApproach = heuristicApproach(c, brief.productContext);
   }
 
-  candidates.sort((a, b) => b.score - a.score || b.productFitScore - a.productFitScore);
+  candidates.sort(
+    (a, b) => b.score - a.score || b.buyerFitScore - a.buyerFitScore,
+  );
   candidates = candidates.slice(0, maxCandidates);
 
-  // ── Refino por IA (opcional, não bloqueante) ─────────────────────────
+  // ── Refino por IA (opcional) ────────────────────────────────────────
   let aiUsed = false;
   try {
     const r = await refineWithAI(brief, candidates, args.userId ?? null);
     aiUsed = r.used;
     if (aiUsed)
       candidates.sort(
-        (a, b) => b.score - a.score || b.productFitScore - a.productFitScore,
+        (a, b) => b.score - a.score || b.buyerFitScore - a.buyerFitScore,
       );
   } catch {
     aiUsed = false;

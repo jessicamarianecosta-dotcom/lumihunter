@@ -60,10 +60,10 @@ export default async function CampanhaPage({
       supabase
         .from("lead_discoveries")
         .select(
-          "id, company_name, segment, description, city, state, phone, whatsapp, email, website, instagram, source, source_url, discovery_query, score, product_fit_score, business_fit_score, result_type, business_type, qualification, qualification_reason, qualification_signals, evidence, qualified_by, recommended_approach, status, discovered_at",
+          "id, company_name, segment, description, city, state, phone, whatsapp, email, website, instagram, source, source_url, discovery_query, score, buyer_fit_score, product_fit_score, business_fit_score, result_type, business_type, competitor, whatsapp_verified, discard_reason, qualification, qualification_reason, qualification_signals, evidence, qualified_by, recommended_approach, status, discovered_at",
         )
         .eq("campaign_id", id)
-        .order("product_fit_score", { ascending: false, nullsFirst: false })
+        .order("score", { ascending: false, nullsFirst: false })
         .limit(500),
       supabase
         .from("products")
@@ -78,6 +78,9 @@ export default async function CampanhaPage({
 
   const disc = (discoveries ?? []) as unknown as DiscoveryRow[];
   const discFound = disc.length;
+  const discProspectable = disc.filter(
+    (d) => d.whatsapp_verified && !d.competitor,
+  ).length;
   const discQualified = disc.filter(
     (d) => d.status === "qualified" || d.status === "approved",
   ).length;
@@ -95,6 +98,7 @@ export default async function CampanhaPage({
 
   const discoveryStats = [
     { k: "Encontrados", v: discFound },
+    { k: "Prospectáveis", v: discProspectable },
     { k: "Qualificados", v: discQualified },
     { k: "Aprovados", v: discApproved },
   ];
@@ -265,7 +269,7 @@ export default async function CampanhaPage({
         <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Prospecção
         </p>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {discoveryStats.map((s) => (
             <Card key={s.k}>
               <CardContent className="p-4">

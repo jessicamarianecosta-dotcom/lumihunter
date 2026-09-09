@@ -6,7 +6,10 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
-import type { ProductContext } from "./types";
+import { generateText, isAiDemoMode } from "@/lib/ai";
+import { parseJsonFromText } from "@/lib/anthropic/client";
+import { GENERIC_AUDIENCE } from "./queries";
+import type { BuyerProfile, ProductContext } from "./types";
 
 type Admin = SupabaseClient<Database>;
 
@@ -99,6 +102,111 @@ export async function getCampaignProductContext(
     variantNames: [],
     source: "text",
   };
+}
+
+// ── Perfil de comprador: quem COMPRA o produto (não quem o fabrica) ────────
+const SUPPLIER_WORDS = [
+  "gráfica", "grafica", "impressão", "impressao", "gráfico", "grafico",
+  "comunicação visual", "comunicacao visual", "serigrafia", "serralheria",
+  "sublimação", "sublimacao", "plotagem", "confecção de", "confeccao de",
+];
+
+/** Heurística: transforma o produto num perfil de comprador e num de exclusão. */
+export function heuristicBuyerProfile(
+  ctx: ProductContext,
+  audience: string,
+): BuyerProfile {
+  const buyerSegments = [
+    ...ctx.exampleBuyers,
+    ...ctx.useCases,
+    ...audience
+      .split(/[,;/\n]| e | ou /i)
+      .map((s) => s.trim().toLowerCase())
+      .filter(
+        (s) =>
+          s.length > 2 &&
+          !s.split(/\s+/).every((w) => GENERIC_AUDIENCE.has(w)),
+      ),
+  ]
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean)
+    .filter((s, i, a) => a.indexOf(s) === i)
+    .slice(0, 10);
+
+  const nameWords = ctx.name
+    .toLowerCase()
+    .split(/[\s,/]+/)
+    .filter((w) => w.length > 3);
+
+  const excludedProfiles = [
+    ...SUPPLIER_WORDS,
+    ...nameWords.map((w) => `fabricante de ${w}`),
+    ...nameWords.map((w) => `fornecedor de ${w}`),
+    ...nameWords.map((w) => `${w} sob encomenda`),
+    ...nameWords.map((w) => `empresa de ${w}`),
+  ].filter((s, i, a) => a.indexOf(s) === i);
+
+  return { buyerSegments, excludedProfiles, source: "heuristic" };
+}
+
+const BUYER_SYSTEM = `Você ajuda um sistema de prospecção B2B. Dado um PRODUTO que
+uma empresa VENDE, você lista QUEM COMPRA esse produto (segmentos de empresas
+clientes) e QUEM NÃO É CLIENTE (fornecedores/concorrentes que fazem o mesmo
+produto). Nunca confunda "usa/vende o produto" com "compra o produto de um
+fornecedor". Responda SOMENTE JSON.`;
+
+/** Deriva o perfil de comprador. IA quando disponível; senão heurística. */
+export async function deriveBuyerProfile(
+  companyId: string,
+  ctx: ProductContext,
+  audience: string,
+): Promise<BuyerProfile> {
+  const fallback = heuristicBuyerProfile(ctx, audience);
+  if (await isAiDemoMode(companyId)) return fallback;
+
+  const prompt = `## Produto vendido
+Nome: ${ctx.name}
+${ctx.description ? `Descrição: ${ctx.description}` : ""}
+${ctx.category ? `Categoria: ${ctx.category}` : ""}
+${ctx.applications.length ? `Aplicações: ${ctx.applications.join(", ")}` : ""}
+
+## Público informado pelo usuário
+${audience || "—"}
+
+## Tarefa
+{
+  "buyer_segments": ["segmentos de EMPRESAS que compram este produto de um fornecedor"],
+  "excluded_profiles": ["perfis a excluir: quem FABRICA/VENDE o mesmo produto (concorrentes e fornecedores)"]
+}`;
+
+  try {
+    const res = await generateText({
+      companyId,
+      system: BUYER_SYSTEM,
+      prompt,
+      maxTokens: 1200,
+    });
+    const parsed = parseJsonFromText<{
+      buyer_segments?: string[];
+      excluded_profiles?: string[];
+    }>(res.text);
+    const buyerSegments = (parsed.buyer_segments ?? [])
+      .filter((s) => typeof s === "string" && s.trim())
+      .map((s) => s.trim().toLowerCase())
+      .slice(0, 12);
+    const excludedProfiles = [
+      ...(parsed.excluded_profiles ?? [])
+        .filter((s) => typeof s === "string" && s.trim())
+        .map((s) => s.trim().toLowerCase()),
+      ...SUPPLIER_WORDS,
+    ]
+      .filter((s, i, a) => a.indexOf(s) === i)
+      .slice(0, 20);
+    if (buyerSegments.length === 0) return fallback;
+    return { buyerSegments, excludedProfiles, source: "ai" };
+  } catch {
+    return fallback;
+  }
 }
 
 /** Lista plana de termos que só podem sair do catálogo (produto + variações). */

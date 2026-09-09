@@ -28,11 +28,14 @@ export function DiscoveryPanel({ campaignId, regions, ready, configured }: Props
     setResult(null);
     setError(null);
     const regionLabel = regions.slice(0, 2).join(", ") || "sua região";
-    setProgress("Preparando busca…");
+    setProgress("Identificando o perfil de comprador do seu produto…");
     timers.current.push(
-      setTimeout(() => setProgress(`Procurando empresas em ${regionLabel}…`), 1200),
-      setTimeout(() => setProgress("Analisando resultados…"), 6000),
-      setTimeout(() => setProgress("Qualificando empresas encontradas…"), 14000),
+      setTimeout(
+        () => setProgress(`Encontrando empresas que podem comprar seu produto em ${regionLabel}…`),
+        2500,
+      ),
+      setTimeout(() => setProgress("Validando compatibilidade (comprador × produto)…"), 9000),
+      setTimeout(() => setProgress("Procurando WhatsApps comerciais…"), 18000),
     );
 
     try {
@@ -51,16 +54,18 @@ export function DiscoveryPanel({ campaignId, regions, ready, configured }: Props
         );
       } else if (data.found === 0 && data.inserted === 0) {
         setResult(
-          `A busca rodou (${data.queries} consultas, ${data.rawResults} resultados) mas nenhuma empresa nova foi encontrada. Ajuste o público ou a região e tente de novo.`,
+          `A busca rodou (${data.queries} consultas, ${data.rawResults} resultados) mas nenhuma empresa compradora nova foi encontrada. Ajuste o produto/público ou a região.`,
         );
         router.refresh();
       } else {
         setResult(
-          `Encontramos ${data.found} possíveis ${
+          `Encontramos ${data.found} ${
             data.found === 1 ? "empresa" : "empresas"
-          } · ${data.inserted} novas adicionadas · ${data.qualified} com bom potencial${
-            data.aiUsed ? " · qualificação com IA" : ""
-          }.`,
+          } · ${data.prospectable ?? 0} prospectáveis (com WhatsApp) · ${
+            data.qualified
+          } qualificadas${
+            data.competitors ? ` · ${data.competitors} concorrentes descartados` : ""
+          }${data.noWhatsapp ? ` · ${data.noWhatsapp} sem WhatsApp` : ""}.`,
         );
         router.refresh();
       }
@@ -103,7 +108,7 @@ export function DiscoveryPanel({ campaignId, regions, ready, configured }: Props
         ) : (
           <Search className="size-4" />
         )}
-        {loading ? "Procurando…" : "🔎 Procurar possíveis leads"}
+        {loading ? "Procurando…" : "🔎 Procurar possíveis clientes"}
       </Button>
 
       {progress && (

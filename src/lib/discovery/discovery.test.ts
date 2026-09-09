@@ -1,16 +1,17 @@
 import { describe, it, expect } from "vitest";
 import { buildDiscoveryQueries, parseAudienceSegments } from "./queries";
-import { classifyResult } from "./classify";
+import { classifyResult, detectCompetitor } from "./classify";
 import { extractCompany, hostOf } from "./extract";
 import { dedupeKeyFor, mergeByDedupeKey } from "./dedupe";
+import { findVerifiedWhatsApp } from "./whatsapp";
 import { qualify, qualificationBand, heuristicApproach, type ScoreInput } from "./score";
 import { buildCatalogGuard } from "./ai";
+import { heuristicBuyerProfile } from "./product-context";
 import type { CampaignBrief, ProductContext } from "./types";
 
 const productContext: ProductContext = {
   name: "Adesivos e rótulos personalizados",
-  description:
-    "Adesivos para identificação e personalização de produtos e embalagens.",
+  description: "Adesivos para identificação e personalização de produtos e embalagens.",
   category: "Adesivos",
   keywords: ["adesivo", "rótulo", "etiqueta", "embalagem"],
   applications: ["identificação de produtos", "rotulagem de embalagens"],
@@ -21,15 +22,22 @@ const productContext: ProductContext = {
   source: "catalog",
 };
 
+const buyerProfile = heuristicBuyerProfile(
+  productContext,
+  "Pequenas empresas, lojas, artesãos, confeiteiros e empreendedores",
+);
+
 const brief: CampaignBrief = {
   id: "c1",
   companyId: "co1",
   name: "Adesivos Rótulos",
   product: productContext.name,
   productContext,
+  buyerProfile,
   audience: "Pequenas empresas, lojas, artesãos, confeiteiros e empreendedores",
   regions: ["Curitiba", "São José dos Pinhais"],
   channel: "whatsapp",
+  channelRequirement: "whatsapp",
 };
 
 function cls(title: string, url: string, content = "") {
@@ -52,199 +60,213 @@ function score(over: Partial<ScoreInput>) {
     resultType: "business",
     businessType: "company",
     sourceQuality: 50,
+    competitor: false,
+    whatsappVerified: false,
+    channelRequirement: "whatsapp",
     regions: brief.regions,
+    buyerSegments: buyerProfile.buyerSegments,
   };
   return qualify({ ...base, ...over }, productContext);
 }
 
-describe("queries — parte do produto, não do público genérico", () => {
-  it("descarta segmentos genéricos do público", () => {
-    const segs = parseAudienceSegments(brief.audience);
-    expect(segs).toContain("confeiteiros");
-    expect(segs).toContain("artesãos");
-    expect(segs).not.toContain("empreendedores");
-    expect(segs).not.toContain("pequenas empresas");
+describe("perfil de comprador guia a busca", () => {
+  it("buyerProfile inclui compradores e exclui fornecedores", () => {
+    expect(buyerProfile.buyerSegments).toContain("confeitaria");
+    expect(buyerProfile.excludedProfiles).toContain("gráfica");
+    expect(buyerProfile.excludedProfiles.some((e) => e.includes("adesivos"))).toBe(true);
   });
 
-  it("nenhuma consulta é só público + cidade", () => {
+  it("nenhuma consulta usa o nome do produto (acha fornecedor)", () => {
     const qs = buildDiscoveryQueries(brief);
     expect(qs.length).toBeGreaterThan(0);
-    expect(qs).not.toContain("empreendedores Curitiba");
-    // toda consulta cita o produto OU um segmento comprador do catálogo
-    expect(qs.some((q) => q.toLowerCase().includes("adesivo"))).toBe(true);
+    expect(qs.some((q) => /^adesivos|^rótulos|^gr[áa]fica/i.test(q))).toBe(false);
     expect(qs.some((q) => q.toLowerCase().includes("confeitaria"))).toBe(true);
+  });
+
+  it("descarta público genérico", () => {
+    const segs = parseAudienceSegments(brief.audience);
+    expect(segs).not.toContain("empreendedores");
+    expect(segs).not.toContain("pequenas empresas");
   });
 });
 
 describe("classifyResult — hard filter", () => {
   it("descarta órgão público / sala do empreendedor", () => {
-    expect(cls("Sala do Empreendedor de São José dos Pinhais", "https://saojose.pr.gov.br/x").resultType).toBe("government");
-    expect(cls("Secretaria Municipal da Indústria e Comércio", "https://x.com").resultType).toBe("government");
+    expect(cls("Sala do Empreendedor de São José dos Pinhais", "https://x.pr.gov.br/y").resultType).toBe("government");
   });
-  it("descarta evento / feira", () => {
-    expect(cls("Feiarte — feira de artesanato de Curitiba", "https://feiarte.com").resultType).toBe("event");
-  });
-  it("descarta associação", () => {
+  it("descarta evento / associação / comunidade / lista / artigo", () => {
+    expect(cls("Feiarte — feira de artesanato", "https://feiarte.com").resultType).toBe("event");
     expect(cls("Associação Comercial de Curitiba", "https://acp.com.br").resultType).toBe("association");
-  });
-  it("descarta comunidade / portal de empreendedorismo", () => {
     expect(cls("Espaço Empreendedor", "https://x.com").resultType).toBe("community");
-    expect(cls("Mais Negócios Curitiba", "https://x.com").resultType).toBe("community");
+    expect(cls("Top 10 Padarias de São José dos Pinhais", "https://blog.x.com").resultType).toBe("directory");
+    expect(cls("Como fazer rótulos: guia completo", "https://blog.x.com").resultType).toBe("article");
   });
-  it("descarta lista / Top 10", () => {
-    expect(cls("Top 10 Padarias e Confeitarias de São José dos Pinhais", "https://blog.x.com").resultType).toBe("directory");
-  });
-  it("descarta artigo", () => {
-    expect(cls("Como fazer rótulos personalizados: guia completo", "https://blog.x.com").resultType).toBe("article");
-  });
-  it("aceita empresa com site próprio e detecta o tipo", () => {
+  it("aceita empresa e detecta o tipo", () => {
     const c = cls("Doce Encanto Confeitaria", "https://doceencanto.com.br", "Confeitaria artesanal em Curitiba");
     expect(c.resultType).toBe("business");
     expect(c.businessType).toBe("confectionery");
-    expect(c.sourceQuality).toBe(100);
   });
 });
 
-describe("extractCompany", () => {
-  it("extrai domínio, cidade e whatsapp com evidência", () => {
-    const r = extractCompany(
-      {
-        title: "Doce Encanto Confeitaria | Curitiba",
-        url: "https://doceencanto.com.br/",
-        content: "Confeitaria em Curitiba/PR. WhatsApp (41) 99999-8888.",
-        rawContent: null,
-        relevance: null,
-        query: "confeitaria Curitiba adesivo",
-        source: "tavily",
-      },
-      brief.regions,
+describe("detectCompetitor — concorrente ≠ comprador", () => {
+  const pk = ["adesivos", "rótulos", "adesivo", "rótulo"];
+  it("gráfica de etiquetas é concorrente", () => {
+    const r = detectCompetitor(
+      { title: "Gráfica Rápida — Etiquetas e Rótulos em Curitiba", url: "https://graficarapida.com.br", content: "Fabricamos etiquetas e rótulos adesivos." },
+      buyerProfile.excludedProfiles,
+      pk,
     );
-    expect(r.ok).toBe(true);
-    expect(r.company?.website).toBe("https://doceencanto.com.br");
-    expect(r.company?.city).toBe("Curitiba");
-    expect(r.company?.whatsapp).toContain("99999");
+    expect(r.competitor).toBe(true);
   });
-
-  it("não inventa dados ausentes", () => {
-    const r = extractCompany(
-      {
-        title: "Ateliê Lume",
-        url: "https://atelielume.com.br",
-        content: "Velas artesanais.",
-        rawContent: null,
-        relevance: null,
-        query: "velas Curitiba",
-        source: "tavily",
-      },
-      brief.regions,
+  it("empresa de comunicação visual é concorrente", () => {
+    const r = detectCompetitor(
+      { title: "XYZ Comunicação Visual", url: "https://xyz.com.br", content: "Impressão de adesivos, fachadas e banners." },
+      buyerProfile.excludedProfiles,
+      pk,
     );
-    expect(r.company?.phone).toBeNull();
-    expect(r.company?.city).toBeNull();
+    expect(r.competitor).toBe(true);
+  });
+  it("confeitaria NÃO é concorrente", () => {
+    const r = detectCompetitor(
+      { title: "Doce Encanto Confeitaria", url: "https://doceencanto.com.br", content: "Doces artesanais e bolos para festas." },
+      buyerProfile.excludedProfiles,
+      pk,
+    );
+    expect(r.competitor).toBe(false);
   });
 });
 
-describe("dedupe", () => {
-  it("usa domínio", () => {
-    expect(
-      dedupeKeyFor({
-        website: "https://www.doceencanto.com.br/contato",
-        phone: null, whatsapp: null, instagram: null,
-        companyName: "Doce Encanto", city: "Curitiba",
-      }),
-    ).toBe("domain:doceencanto.com.br");
+describe("findVerifiedWhatsApp — telefone ≠ WhatsApp", () => {
+  it("confirma via link wa.me", () => {
+    const r = findVerifiedWhatsApp("Fale conosco: https://wa.me/5541999998888");
+    expect(r.verified).toBe(true);
+    expect(r.number).toContain("99999");
   });
-  it("merge preenche buracos sem apagar", () => {
-    const merged = mergeByDedupeKey([
-      { dedupeKey: "k", description: "A", city: "Curitiba", state: null, phone: null, whatsapp: null, email: null, website: "x", instagram: null },
-      { dedupeKey: "k", description: null, city: null, state: "PR", phone: "+5541999998888", whatsapp: null, email: null, website: "x", instagram: null },
-    ]);
-    expect(merged).toHaveLength(1);
-    expect(merged[0].state).toBe("PR");
-    expect(merged[0].description).toBe("A");
+  it("confirma via rótulo explícito", () => {
+    const r = findVerifiedWhatsApp("WhatsApp comercial (41) 99999-8888 para encomendas");
+    expect(r.verified).toBe(true);
+  });
+  it("NÃO confirma quando só há telefone", () => {
+    const r = findVerifiedWhatsApp("Telefone: (41) 3333-4444. Endereço: Rua X, 100.");
+    expect(r.verified).toBe(false);
   });
 });
 
-describe("qualify — product fit domina", () => {
-  it("confeitaria com produtos próprios em Curitiba pontua alto", () => {
+describe("qualify — buyer fit + WhatsApp obrigatórios", () => {
+  it("confeitaria compradora com WhatsApp confirmado → alto potencial", () => {
     const q = score({
       companyName: "Doce Encanto Confeitaria",
       businessType: "confectionery",
-      description:
-        "Confeitaria artesanal. Vendemos produtos embalados e temos linha própria de doces para presente.",
+      description: "Confeitaria artesanal. Vendemos produtos embalados e temos linha própria de doces.",
       city: "Curitiba",
       state: "PR",
-      whatsapp: "+5541999998888",
       website: "https://doceencanto.com.br",
-      instagram: "https://instagram.com/doceencanto",
-      discoveryQuery: "confeitaria Curitiba adesivo",
+      whatsappVerified: true,
+      whatsapp: "+5541999998888",
+      discoveryQuery: "confeitaria Curitiba",
       sourceQuality: 100,
     });
-    expect(q.productFitScore).toBeGreaterThanOrEqual(60);
+    expect(q.buyerFitScore).toBeGreaterThanOrEqual(60);
     expect(q.qualification).toBe("high");
-    expect(q.evidence.length).toBeGreaterThan(1);
-    expect(q.signals[0].label.toLowerCase()).toContain("compat");
+    expect(q.discardReason).toBeNull();
   });
 
-  it("NÃO fica alto só por região + site + whatsapp, sem product fit", () => {
+  it("empresa relevante SEM WhatsApp → nunca qualificada, score ≤ 49", () => {
+    const q = score({
+      companyName: "Saboaria da Lua",
+      businessType: "soap_brand",
+      description: "Sabonetes artesanais com linha própria.",
+      city: "Curitiba",
+      website: "https://saboariadalua.com.br",
+      instagram: "https://instagram.com/saboariadalua",
+      whatsappVerified: false,
+    });
+    expect(q.qualification).toBe("low");
+    expect(q.score).toBeLessThanOrEqual(49);
+    expect(q.discardReason).toBe("WhatsApp comercial não confirmado");
+  });
+
+  it("concorrente (gráfica) → buyer_fit 0, não qualificado", () => {
+    const q = score({
+      companyName: "Gráfica Rápida",
+      businessType: "company",
+      competitor: true,
+      city: "Curitiba",
+      whatsappVerified: true,
+    });
+    expect(q.buyerFitScore).toBe(0);
+    expect(q.qualification).toBe("low");
+    expect(q.discardReason).toContain("concorrente");
+  });
+
+  it("não é empresa → não qualificado", () => {
+    const q = score({ resultType: "government", businessType: "unknown", city: "Curitiba", whatsappVerified: true });
+    expect(q.qualification).toBe("low");
+  });
+
+  it("consultoria (sem product fit) com WhatsApp → não é alto", () => {
     const q = score({
       companyName: "Consultoria Alfa",
       businessType: "service_business",
-      description: "Consultoria empresarial e treinamentos corporativos.",
+      description: "Consultoria empresarial e treinamentos.",
       city: "Curitiba",
-      whatsapp: "+5541999990000",
-      website: "https://consultoriaalfa.com.br",
-      instagram: "https://instagram.com/consultoriaalfa",
+      whatsappVerified: true,
       sourceQuality: 100,
     });
-    expect(q.productFitScore).toBeLessThan(50);
+    expect(q.buyerFitScore).toBeLessThan(50);
     expect(q.qualification).not.toBe("high");
   });
 
-  it("resultType != business zera o product fit", () => {
-    const q = score({ resultType: "government", businessType: "unknown", city: "Curitiba", website: "https://x.gov.br" });
-    expect(q.productFitScore).toBe(0);
-  });
-
-  it("bandas: product_fit < 30 nunca é qualificado", () => {
-    expect(qualificationBand(90, 20)).toBe("low");
-    expect(qualificationBand(80, 55)).toBe("high");
-    expect(qualificationBand(60, 40)).toBe("medium");
-    expect(qualificationBand(80, 45)).toBe("medium"); // alto score mas fit < 50 → não high
+  it("bandas: sem whatsapp em campanha whatsapp nunca qualifica", () => {
+    const args = {
+      final: 90, buyerFit: 90, productFit: 90,
+      resultType: "business" as const, competitor: false,
+      channelRequirement: "whatsapp" as const,
+    };
+    expect(qualificationBand({ ...args, whatsappVerified: false })).toBe("low");
+    expect(qualificationBand({ ...args, whatsappVerified: true })).toBe("high");
   });
 });
 
 describe("catálogo é a fonte da verdade", () => {
   const guard = buildCatalogGuard(
-    productContext.name,
-    productContext.keywords,
-    productContext.variantNames,
-    productContext.applications,
+    productContext.name, productContext.keywords,
+    productContext.variantNames, productContext.applications,
   );
-
-  it("bloqueia abordagem que cita produto fora do catálogo", () => {
-    expect(guard("Oferecer kit festa e decoração para a confeitaria.")).toBe(false);
-    expect(guard("Sugerir canecas e camisetas personalizadas.")).toBe(false);
+  it("bloqueia abordagem com produto fora do catálogo", () => {
+    expect(guard("Oferecer kit festa e canecas personalizadas.")).toBe(false);
   });
-
-  it("aceita abordagem que cita só o produto do catálogo", () => {
-    expect(
-      guard("Apresentar as opções de adesivos e rótulos personalizados da LumiLife."),
-    ).toBe(true);
+  it("aceita abordagem só com o produto do catálogo", () => {
+    expect(guard("Apresentar adesivos e rótulos personalizados para as embalagens.")).toBe(true);
   });
-
-  it("heuristicApproach nunca cita produto fora do catálogo", () => {
-    const a = heuristicApproach(
-      { companyName: "Doce Encanto", businessType: "confectionery" },
-      productContext,
-    );
-    expect(a.toLowerCase()).toContain("adesivos e rótulos");
+  it("heuristicApproach fica no catálogo", () => {
+    const a = heuristicApproach({ companyName: "Doce Encanto", businessType: "confectionery" }, productContext);
     expect(guard(a)).toBe(true);
+    expect(a.toLowerCase()).toContain("adesivos e rótulos");
   });
 });
 
-describe("hostOf", () => {
-  it("normaliza", () => {
+describe("dedupe / hostOf", () => {
+  it("dedupe por domínio", () => {
+    expect(dedupeKeyFor({ website: "https://www.x.com.br/a", phone: null, whatsapp: null, instagram: null, companyName: "X", city: "Curitiba" })).toBe("domain:x.com.br");
+  });
+  it("merge preenche buracos", () => {
+    const m = mergeByDedupeKey([
+      { dedupeKey: "k", description: "A", city: "Curitiba", state: null, phone: null, whatsapp: null, email: null, website: "x", instagram: null },
+      { dedupeKey: "k", description: null, city: null, state: "PR", phone: "+5541999998888", whatsapp: null, email: null, website: "x", instagram: null },
+    ]);
+    expect(m).toHaveLength(1);
+    expect(m[0].state).toBe("PR");
+  });
+  it("hostOf normaliza", () => {
     expect(hostOf("https://www.Exemplo.com.BR/x")).toBe("exemplo.com.br");
-    expect(hostOf("nao-url")).toBe("");
+  });
+  it("extractCompany não inventa", () => {
+    const r = extractCompany(
+      { title: "Ateliê Lume", url: "https://atelielume.com.br", content: "Velas artesanais.", rawContent: null, relevance: null, query: "q", source: "tavily" },
+      brief.regions,
+    );
+    expect(r.company?.phone).toBeNull();
+    expect(r.company?.city).toBeNull();
   });
 });

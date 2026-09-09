@@ -80,36 +80,28 @@ export function deriveBuyerSegments(
 }
 
 export function buildDiscoveryQueries(brief: CampaignBrief): string[] {
-  const ctx = brief.productContext;
   const regions = brief.regions.length ? brief.regions : ["Brasil"];
-  const buyerSegments = deriveBuyerSegments(ctx, brief.audience);
-  const productKw = [
-    ...parseProductKeywords(ctx.name),
-    ...ctx.keywords.flatMap(tokens),
-  ].filter((w, i, a) => a.indexOf(w) === i);
-  const appKw = ctx.applications.flatMap(tokens);
-  const anchor = productKw[0] ?? appKw[0] ?? "";
+
+  // A busca parte de QUEM COMPRA — nunca do nome do produto (isso acha
+  // fornecedores/concorrentes).
+  const buyerSegments = brief.buyerProfile.buyerSegments.length
+    ? brief.buyerProfile.buyerSegments
+    : deriveBuyerSegments(brief.productContext, brief.audience);
 
   const queries: string[] = [];
 
   for (const region of regions.slice(0, 4)) {
-    // produto direto na região
-    queries.push(`${ctx.name} ${region}`);
-    // cada segmento comprador SEMPRE com âncora de produto
     for (const seg of buyerSegments.slice(0, 6)) {
-      queries.push(`${seg} ${region} ${anchor}`.replace(/\s+/g, " ").trim());
+      queries.push(`${seg} ${region}`);
+      queries.push(`${seg} ${region} contato`);
     }
   }
 
-  // sem segmentos identificáveis: ao menos ancora nas keywords do produto
+  // fallback extremo: nem segmentos nem catálogo → usa o público bruto
   if (buyerSegments.length === 0) {
     for (const region of regions.slice(0, 3)) {
-      for (const kw of productKw.slice(0, 3)) {
-        queries.push(`empresas ${kw} ${region}`);
-      }
-      for (const app of appKw.slice(0, 2)) {
-        queries.push(`${app} ${region}`);
-      }
+      queries.push(`empresas que vendem produtos ${region}`);
+      queries.push(`marcas e fabricantes ${region}`);
     }
   }
 

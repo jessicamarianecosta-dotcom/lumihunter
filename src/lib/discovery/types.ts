@@ -21,6 +21,16 @@ export interface ProductContext {
   source: "catalog" | "text";
 }
 
+/** Quem COMPRA o produto (não quem o fabrica/vende) + quem é concorrente. */
+export interface BuyerProfile {
+  /** Segmentos de empresas que compram este produto. */
+  buyerSegments: string[];
+  /** Perfis a EXCLUIR: fornecedores/concorrentes do mesmo produto. */
+  excludedProfiles: string[];
+  /** Como o perfil foi derivado. */
+  source: "ai" | "heuristic";
+}
+
 export interface CampaignBrief {
   id: string;
   companyId: string;
@@ -29,11 +39,15 @@ export interface CampaignBrief {
   product: string;
   /** Contexto estruturado do produto (fonte da verdade para a busca). */
   productContext: ProductContext;
+  /** Perfil de comprador derivado do produto. */
+  buyerProfile: BuyerProfile;
   /** Para quem ela quer vender (texto livre). */
   audience: string;
   /** Onde: cidades/regiões. */
   regions: string[];
   channel: string;
+  /** Requisito de canal: "whatsapp" exige WhatsApp comercial confirmado. */
+  channelRequirement: "whatsapp" | "email" | "none";
 }
 
 /** Resultado cru de uma fonte, antes de normalizar. */
@@ -129,9 +143,14 @@ export interface DiscoveredCompany {
   resultType: ResultType;
   businessType: BusinessType;
   sourceQuality: number;
+  /** true = fornecedor/concorrente do mesmo produto (nunca vira lead). */
+  competitor: boolean;
+  /** WhatsApp comercial confirmado por evidência (não assumido do telefone). */
+  whatsappVerified: boolean;
 
-  /** Score final (0-100), dominado por productFit. */
+  /** Score final (0-100). */
   score: number;
+  buyerFitScore: number;
   productFitScore: number;
   businessFitScore: number;
   qualification: Qualification;
@@ -139,6 +158,8 @@ export interface DiscoveredCompany {
   qualificationSignals: QualificationSignal[];
   /** Fatos concretos que embasam a qualificação (nunca especulação). */
   evidence: string[];
+  /** Se não virou lead prospectável, por quê. */
+  discardReason: string | null;
   qualifiedBy: "heuristic" | "ai";
   recommendedApproach: string | null;
 }

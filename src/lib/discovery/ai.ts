@@ -1,11 +1,9 @@
 /**
  * Refino da qualificação por IA (opcional).
  *
- * - Sem chave de IA (modo demo): ignorada; a heurística vale. A descoberta via
- *   Tavily NÃO depende disto.
- * - A IA recebe só dados REAIS + o CATÁLOGO da campanha e devolve product fit,
- *   business fit, evidências e a abordagem. Ela NÃO pode inventar dados NEM
- *   recomendar produto/serviço fora do catálogo.
+ * - Sem chave de IA (modo demo): ignorada; a heurística vale.
+ * - A IA procura COMPRADORES do produto — não fornecedores nem concorrentes.
+ *   Recebe o catálogo e é proibida de recomendar produto fora dele.
  * - Uma única chamada por lote.
  */
 import { generateText, isAiDemoMode } from "@/lib/ai";
@@ -16,32 +14,34 @@ import type { CampaignBrief, DiscoveredCompany } from "./types";
 
 const SYSTEM = `Você é o "Qualifier" do LumiHunter, agente de qualificação de leads B2B.
 
-Você recebe:
-1. O CATÁLOGO da campanha (o único produto/serviço que a empresa usuária vende).
-2. Empresas encontradas em buscas públicas, com SÓ os dados que a busca trouxe.
+Você está procurando COMPRADORES do produto — empresas que comprariam esse
+produto de um fornecedor. NÃO fornecedores, NÃO concorrentes, NÃO quem "usa"
+ou "vende" o mesmo produto.
 
-Para cada empresa, avalie o POTENCIAL DE COMPRA do produto do catálogo.
+Você recebe:
+1. O CATÁLOGO da campanha (o único produto que a empresa usuária vende).
+2. O PERFIL DE COMPRADOR e os PERFIS EXCLUÍDOS (concorrentes/fornecedores).
+3. Empresas encontradas, com SÓ os dados da busca.
 
 REGRAS ABSOLUTAS:
-- NUNCA invente dados (telefone, site, cidade, segmento, faturamento).
-- NUNCA afirme um fato sem evidência no input. Se é inferência, escreva "indica",
-  "sugere", "a confirmar" — nunca "usa", "compra", "precisa".
-- "product_fit" (0-100) mede SÓ: esta empresa tem razão concreta para comprar
-  ESTE produto? Região, ter site ou WhatsApp NÃO aumentam product_fit.
-- "recommended_approach" só pode mencionar o produto do catálogo. É PROIBIDO
-  sugerir qualquer outro produto/serviço (ex.: "kit festa", "decoração",
-  "brindes") que não esteja no catálogo. Se não souber a aplicação, escreva
-  uma abordagem genérica sobre o produto do catálogo.
-- "result_type": "business" só se for uma empresa/negócio específico. Órgão
-  público, associação, evento, feira, lista/diretório, portal de
-  empreendedorismo, artigo → o tipo correspondente, e product_fit = 0.
-- "evidence": lista de FATOS do input (ex.: "Site apresenta linha de velas em
-  potes individuais"). Não invente.
-- Responda SOMENTE com JSON válido.`;
+- "competitor": true se a empresa FABRICA/VENDE o mesmo produto (gráfica,
+  impressão, comunicação visual, fábrica de etiquetas…). competitor=true →
+  buyer_fit=0, product_fit=0.
+- "buyer_fit" (0-100): esta empresa COMPRA este produto de fornecedores? Ter
+  site, telefone, Instagram ou estar na região NÃO aumenta buyer_fit.
+- "product_fit" (0-100): o produto tem aplicação real no negócio dela?
+- NUNCA invente dados. Se é inferência, escreva "indica", "sugere", "a confirmar".
+- "result_type": "business" só para empresa/negócio específico.
+- "recommended_approach": SÓ o produto do catálogo. PROIBIDO citar qualquer
+  outro produto/serviço ("kit festa", "decoração", "brindes"…).
+- "evidence": fatos do input, nunca invenção.
+- Responda SOMENTE JSON.`;
 
 interface AiItem {
   index: number;
   result_type: string;
+  competitor: boolean;
+  buyer_fit: number;
   product_fit: number;
   business_fit: number;
   score: number;
@@ -66,9 +66,7 @@ export async function refineWithAI(
   const catalogBlock = [
     `Produto: ${ctx.name}`,
     ctx.description ? `Descrição: ${ctx.description}` : null,
-    ctx.category ? `Categoria: ${ctx.category}` : null,
     ctx.applications.length ? `Aplicações: ${ctx.applications.join(", ")}` : null,
-    ctx.exampleBuyers.length ? `Compradores típicos: ${ctx.exampleBuyers.join(", ")}` : null,
     ctx.variantNames.length ? `Variações: ${ctx.variantNames.join(", ")}` : null,
   ]
     .filter(Boolean)
@@ -79,9 +77,9 @@ export async function refineWithAI(
       [
         `#${i}`,
         `nome: ${c.companyName}`,
-        `tipo detectado: ${c.businessType} / ${c.resultType}`,
+        `tipo detectado: ${c.businessType} / ${c.resultType}${c.competitor ? " / possível concorrente" : ""}`,
         `cidade/UF: ${c.city ?? "—"}${c.state ? "/" + c.state : ""}`,
-        `site: ${c.website ?? "—"} | instagram: ${c.instagram ?? "—"}`,
+        `site: ${c.website ?? "—"} | instagram: ${c.instagram ?? "—"} | whatsapp confirmado: ${c.whatsappVerified ? "sim" : "não"}`,
         `descrição encontrada: ${c.description ?? "—"}`,
         `fonte: ${c.sourceUrl ?? "—"}`,
       ].join("\n"),
@@ -90,6 +88,12 @@ export async function refineWithAI(
 
   const prompt = `## CATÁLOGO DA CAMPANHA (único produto que pode ser oferecido)
 ${catalogBlock}
+
+## Perfil de comprador (quem COMPRA)
+${brief.buyerProfile.buyerSegments.join(", ") || "—"}
+
+## Perfis EXCLUÍDOS (concorrentes/fornecedores — nunca são lead)
+${brief.buyerProfile.excludedProfiles.join(", ") || "—"}
 
 ## Regiões-alvo
 ${brief.regions.join(", ") || "—"}
@@ -103,12 +107,14 @@ ${list}
     {
       "index": 0,
       "result_type": "business|article|directory|event|association|government|community|content|unknown",
+      "competitor": false,
+      "buyer_fit": 0-100,
       "product_fit": 0-100,
       "business_fit": 0-100,
       "score": 0-100,
       "reason": "1-2 frases factuais",
-      "evidence": ["fato do input", "..."],
-      "signals": ["Compatível com <produto>", "Segmento comprador potencial", "..."],
+      "evidence": ["fato do input"],
+      "signals": ["Empresa compradora identificada", "Produto compatível", "..."],
       "recommended_approach": "abordagem citando SÓ o produto do catálogo, ou null"
     }
   ]
@@ -148,7 +154,12 @@ ${list}
     return { used: false };
   }
 
-  const catalogGuard = buildCatalogGuard(ctx.name, ctx.keywords, ctx.variantNames, ctx.applications);
+  const catalogGuard = buildCatalogGuard(
+    ctx.name,
+    ctx.keywords,
+    ctx.variantNames,
+    ctx.applications,
+  );
 
   for (const item of items) {
     const target = batch[item.index];
@@ -156,14 +167,35 @@ ${list}
 
     if (typeof item.result_type === "string" && item.result_type !== "business") {
       target.resultType = item.result_type as DiscoveredCompany["resultType"];
+    }
+    if (item.competitor === true) {
+      target.competitor = true;
+      target.buyerFitScore = 0;
       target.productFitScore = 0;
     }
-    if (typeof item.product_fit === "number")
-      target.productFitScore = clamp(item.product_fit);
-    if (typeof item.business_fit === "number")
-      target.businessFitScore = clamp(item.business_fit);
+    if (!target.competitor) {
+      if (typeof item.buyer_fit === "number") target.buyerFitScore = clamp(item.buyer_fit);
+      if (typeof item.product_fit === "number") target.productFitScore = clamp(item.product_fit);
+      if (typeof item.business_fit === "number") target.businessFitScore = clamp(item.business_fit);
+    }
     if (typeof item.score === "number") target.score = clamp(item.score);
-    target.qualification = qualificationBand(target.score, target.productFitScore);
+    if (
+      brief.channelRequirement === "whatsapp" &&
+      !target.whatsappVerified &&
+      target.score > 49
+    ) {
+      target.score = 49;
+    }
+
+    target.qualification = qualificationBand({
+      final: target.score,
+      buyerFit: target.buyerFitScore,
+      productFit: target.productFitScore,
+      resultType: target.resultType,
+      competitor: target.competitor,
+      whatsappVerified: target.whatsappVerified,
+      channelRequirement: brief.channelRequirement,
+    });
 
     if (item.reason) target.qualificationReason = item.reason;
     if (Array.isArray(item.evidence))
@@ -173,7 +205,6 @@ ${list}
         .filter((s) => typeof s === "string" && s.trim())
         .map((s) => ({ label: s.trim() }));
 
-    // abordagem: só passa se não citar produto fora do catálogo
     if (item.recommended_approach && catalogGuard(item.recommended_approach)) {
       target.recommendedApproach = item.recommended_approach;
     }
@@ -202,7 +233,7 @@ function clamp(n: number): number {
 
 /**
  * Retorna um validador: `true` se o texto NÃO menciona produto suspeito fora
- * do catálogo. Lista curta de itens que a IA costuma alucinar nesse contexto.
+ * do catálogo.
  */
 export function buildCatalogGuard(
   name: string,
@@ -230,7 +261,6 @@ export function buildCatalogGuard(
     return !SUSPECT.some((s) => {
       const bare = s.normalize("NFD").replace(/[̀-ͯ]/g, "");
       if (!t.includes(bare)) return false;
-      // permitido se alguma palavra do termo estiver no catálogo
       return !bare.split(/[\s-]+/).some((w) => allowed.has(w));
     });
   };
