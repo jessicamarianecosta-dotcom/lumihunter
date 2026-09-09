@@ -21,7 +21,10 @@ const FIXTURE: ProviderProduct[] = [
     description: "Cartão de visita impresso, arte pronta.",
     category: "Gráfica",
     basePrice: 35,
+    startingPrice: null,
+    promoPrice: null,
     leadTimeDays: 3,
+    checkoutMode: "quote",
     photoUrls: [],
     variationGroups: [
       {

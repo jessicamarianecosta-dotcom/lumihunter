@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { tryGetContext, canWrite } from "@/lib/auth/context";
 import { hasRealProvider } from "@/lib/catalog/providers";
+import { syncPrecyCatalog } from "@/lib/catalog/sync";
 import { logCatalogEvent } from "@/lib/catalog/sources";
 
 export const maxDuration = 60;
@@ -12,18 +13,33 @@ export async function POST() {
     return NextResponse.json({ error: "sem permissão" }, { status: 403 });
 
   if (!hasRealProvider("precy")) {
-    await logCatalogEvent(ctx.company.id, "precy_sync_blocked", {});
+    await logCatalogEvent(ctx.company.id, "sync_error", { reason: "provider off" });
     return NextResponse.json(
-      {
-        ok: false,
-        message:
-          "A sincronização automática com o catálogo online do Precy+ ainda não está disponível: falta confirmar com o Precy+ o método oficial de acesso (API dedicada ou uso do PostgREST público). A URL fica salva e o botão \"Abrir catálogo\" funciona. A arquitetura já está pronta para ligar a sincronização quando isso for definido.",
-      },
+      { ok: false, message: "Integração Precy+ desabilitada nesta instância." },
       { status: 501 },
     );
   }
 
-  // Quando `PRECY_ENABLED=true` e a listagem por loja estiver confirmada, o
-  // sync real entra aqui (listProducts → upsert por external_id → diff).
-  return NextResponse.json({ ok: false, message: "sync real ainda não implementado" }, { status: 501 });
+  try {
+    const r = await syncPrecyCatalog(ctx.company.id, ctx.supabase);
+    console.log(
+      `[catalog/precy/sync] company ${ctx.company.id}: found=${r.found} created=${r.created} updated=${r.updated} removed=${r.removed} errors=${r.errors.length}`,
+    );
+    if (!r.ok) {
+      return NextResponse.json(
+        { ...r, message: r.errors[0] ?? "Falha na sincronização." },
+        { status: 502 },
+      );
+    }
+    return NextResponse.json({
+      ...r,
+      message: `${r.found} encontrado(s) · ${r.created} novo(s) · ${r.updated} atualizado(s)${
+        r.removed ? ` · ${r.removed} removido(s)` : ""
+      }${r.needsReview ? ` · ${r.needsReview} p/ revisão` : ""}`,
+    });
+  } catch (e) {
+    const msg = (e as Error).message;
+    console.error("[catalog/precy/sync] erro:", msg);
+    return NextResponse.json({ ok: false, message: msg }, { status: 500 });
+  }
 }

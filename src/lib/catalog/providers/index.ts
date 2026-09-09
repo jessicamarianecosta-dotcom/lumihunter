@@ -5,10 +5,12 @@ import { precyCatalogProvider } from "./precy";
 /**
  * Registry de provedores de catálogo externo.
  *
- * - `mock`: só quando explicitamente pedido (nunca tratado como integração real).
- * - `precy`: só entra quando `PRECY_ENABLED=true` E o método de acesso ao
- *   catálogo online do Precy+ estiver confirmado (ver `providers/precy.ts`).
- *   Enquanto `isReal` for false, `resolveProvider("precy")` devolve `null`.
+ * - `precy`: integração REAL (PostgREST público do Precy+). Registrada quando
+ *   `precyCatalogProvider.isReal` (padrão: ligado, salvo `PRECY_ENABLED=false`
+ *   ou sem anon key). A decisão de CONSULTAR é por empresa: só se a empresa
+ *   tiver uma fonte `precy_online` conectada.
+ * - `mock`: só quando explicitamente pedido (`provider: "mock"`), nunca tratado
+ *   como integração real.
  */
 const REGISTRY: Record<string, CatalogProvider> = {
   mock: mockCatalogProvider,
@@ -25,7 +27,7 @@ export function hasRealProvider(id: string | null | undefined): boolean {
   return !!p && p.isReal;
 }
 
-/** Provider usado só para "Testar conexão" na UI, mesmo antes de habilitar o sync. */
+/** Provider para "Testar conexão" na UI — devolve mesmo que não esteja no registry. */
 export function providerForTest(id: string | null | undefined): CatalogProvider | null {
   if (id === "precy") return precyCatalogProvider;
   if (id === "mock") return mockCatalogProvider;

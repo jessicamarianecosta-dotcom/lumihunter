@@ -1,52 +1,32 @@
 /**
- * PrecyCatalogProvider — leitura do catálogo online do Precy+.
+ * PrecyCatalogProvider — leitura REAL do catálogo online do Precy+.
  *
- * ⚠️  DESLIGADO POR PADRÃO. Só entra em ação com `PRECY_ENABLED=true`.
- * A conexão real depende de confirmar com o Precy+ o método suportado
- * (ver "Estado da integração" abaixo). Até lá o registry (`providers/index.ts`)
- * NÃO expõe este provider.
+ * ── Método (confirmado inspecionando o bundle do próprio storefront do Precy+) ──
+ * O storefront `precyplus.com.br/loja/<slug>` é um app que lê o PostgREST
+ * público do Supabase do Precy+ com a anon key embutida no bundle (role `anon`,
+ * protegida por RLS: `is_published_catalog = true`). São EXATAMENTE estas as
+ * queries que a loja usa:
  *
- * ── O que a análise técnica de `https://precyplus.com.br/loja/lumilife`
- *    encontrou (Fase 0 / Etapa 2) ──────────────────────────────────────────
+ *   catalog_settings ?slug=eq.<slug>
+ *     &select=company_id,slug,description,whatsapp,instagram,city,state,checkout_mode,companies(name)
+ *   catalog_categories ?company_id=eq.<cid>&select=id,name&order=sort_order
+ *   products ?company_id=eq.<cid>&is_published_catalog=eq.true
+ *     &select=id,name,final_price,catalog_starting_price,catalog_promo_price,
+ *             catalog_photos,catalog_category_id,catalog_lead_time_days,
+ *             catalog_checkout_mode,description
+ *   product_images ?product_id=eq.<pid>&select=id,url,sort_order&order=sort_order
+ *   product_variation_groups ?product_id=eq.<pid>
+ *     &select=id,name,sort_order,product_variation_options(id,group_id,value,sort_order)
+ *   product_variants ?product_id=eq.<pid>&is_active=eq.true
+ *     &select=id,sku,price,stock_quantity,lead_time_days,image_id,sort_order,
+ *             product_variant_option_values(option_id,group_id)
+ *   product_variation_dependencies ?product_id=eq.<pid>&select=option_id,depends_on_option_id
  *
- * O Precy+ é um Next.js (App Router) sobre Supabase
- * (projeto `ekynvecruqpuwwrcwtnp`). A PÁGINA DE PRODUTO busca os dados
- * client-side, direto no PostgREST público do Supabase deles, com uma anon key
- * embutida no bundle JS (role "anon", protegida por RLS: filtro
- * `is_published_catalog=eq.true`). Chamadas observadas, por produto:
+ * Preço: base = final_price; a variante usa `price` quando definido, senão o base.
  *
- *   GET /rest/v1/products
- *       ?select=id,name,description,final_price,catalog_starting_price,
- *               catalog_promo_price,catalog_photos,catalog_lead_time_days,
- *               catalog_checkout_mode,catalog_category_id
- *       &id=eq.<uuid>&is_published_catalog=eq.true
- *
- *   GET /rest/v1/product_images
- *       ?select=id,url,sort_order&product_id=eq.<uuid>&order=sort_order.asc
- *
- *   GET /rest/v1/product_variation_groups
- *       ?select=id,name,sort_order,
- *               product_variation_options(id,group_id,value,sort_order)
- *       &product_id=eq.<uuid>&order=sort_order.asc
- *
- *   GET /rest/v1/product_variants
- *       ?select=id,sku,price,stock_quantity,lead_time_days,image_id,sort_order,
- *               product_variant_option_values(option_id,group_id)
- *       &product_id=eq.<uuid>&is_active=eq.true&order=sort_order.asc
- *
- *   GET /rest/v1/product_variation_dependencies
- *       ?select=option_id,depends_on_option_id&product_id=eq.<uuid>
- *
- * A LISTAGEM da loja (`/loja/<slug>`) é renderizada NO SERVIDOR do Precy+
- * (RSC) — a query "todos os produtos publicados da loja <slug>" NÃO aparece no
- * cliente. Ou seja: `getProduct(id)` é conhecido; `listProducts()` depende de
- * confirmar com o Precy+ (coluna de dono/loja em `products`, ou um endpoint
- * dedicado).
- *
- * ── Estado da integração ─────────────────────────────────────────────────
- *  ✅ getProduct(externalId)          — mapeamento pronto (endpoints acima)
- *  ⛔ listProducts()/slug→loja         — PENDENTE: confirmar com o Precy+
- *  ⛔ usar a anon key do bundle deles  — PENDENTE: decisão/autorização
+ * Tudo somente-leitura, do lado do servidor do LumiHunter (sem CORS, sem
+ * expor segredo no frontend). A anon key é pública por design (vem do bundle
+ * deles) e é sobrescrevível por env.
  */
 import type {
   CatalogProvider,
@@ -54,15 +34,21 @@ import type {
   ProviderProduct,
 } from "../types";
 
-/** Valores descobertos na análise — sobrescrevíveis por env. */
-const PRECY_SUPABASE_URL =
-  process.env.PRECY_SUPABASE_URL ?? "https://ekynvecruqpuwwrcwtnp.supabase.co";
-const PRECY_SUPABASE_ANON_KEY = process.env.PRECY_SUPABASE_ANON_KEY ?? "";
-const PRECY_ENABLED = process.env.PRECY_ENABLED === "true";
+const PRECY_SUPABASE_URL = (
+  process.env.PRECY_SUPABASE_URL ?? "https://ekynvecruqpuwwrcwtnp.supabase.co"
+).replace(/\/$/, "");
+const PRECY_SUPABASE_ANON_KEY =
+  process.env.PRECY_SUPABASE_ANON_KEY ??
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVreW52ZWNydXFwdXd3cmN3dG5wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5MjA4OTcsImV4cCI6MjA5NjQ5Njg5N30.JPFZiciQaZfQtGeA4qK5MoDRVrhru8_Wwka_53T9cxk";
 
-const P_SELECT = {
-  product:
-    "id,name,description,final_price,catalog_starting_price,catalog_promo_price,catalog_photos,catalog_lead_time_days,catalog_checkout_mode,catalog_category_id",
+/** kill-switch opcional; a integração é real, então o padrão é ligado. */
+const PRECY_ENABLED = process.env.PRECY_ENABLED !== "false";
+
+const SELECT = {
+  settings:
+    "company_id,slug,description,whatsapp,instagram,city,state,checkout_mode",
+  productList:
+    "id,name,description,final_price,catalog_starting_price,catalog_promo_price,catalog_photos,catalog_category_id,catalog_lead_time_days,catalog_checkout_mode",
   images: "id,url,sort_order",
   groups:
     "id,name,sort_order,product_variation_options(id,group_id,value,sort_order)",
@@ -70,7 +56,56 @@ const P_SELECT = {
     "id,sku,price,stock_quantity,lead_time_days,image_id,sort_order,product_variant_option_values(option_id,group_id)",
 } as const;
 
-interface PrecyProductRow {
+export class PrecyNotReadyError extends Error {}
+
+async function rest<T>(pathAndQuery: string): Promise<T> {
+  if (!PRECY_SUPABASE_ANON_KEY) {
+    throw new PrecyNotReadyError("PRECY_SUPABASE_ANON_KEY não configurada.");
+  }
+  const res = await fetch(`${PRECY_SUPABASE_URL}/rest/v1/${pathAndQuery}`, {
+    headers: {
+      apikey: PRECY_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${PRECY_SUPABASE_ANON_KEY}`,
+      Accept: "application/json",
+    },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const body = (await res.text()).slice(0, 300);
+    throw new Error(`Precy+ PostgREST ${res.status}: ${body}`);
+  }
+  return (await res.json()) as T;
+}
+
+/** Extrai o slug da loja da URL cadastrada. */
+export function parseStoreSlug(url: string): string | null {
+  const m = url.match(/\/loja\/([^/?#]+)/i);
+  return m ? decodeURIComponent(m[1]).trim().toLowerCase() : null;
+}
+
+interface SettingsRow {
+  company_id: string;
+  slug: string;
+  description: string | null;
+  whatsapp: string | null;
+  instagram: string | null;
+  city: string | null;
+  state: string | null;
+  checkout_mode: string | null;
+}
+
+/** Resolve slug → conta/loja do Precy+ (tabela `catalog_settings`). */
+export async function resolveStore(
+  slug: string,
+): Promise<{ externalCompanyId: string; settings: SettingsRow } | null> {
+  const rows = await rest<SettingsRow[]>(
+    `catalog_settings?slug=eq.${encodeURIComponent(slug)}&select=${SELECT.settings}&limit=1`,
+  );
+  const s = rows[0];
+  return s ? { externalCompanyId: s.company_id, settings: s } : null;
+}
+
+interface ListRow {
   id: string;
   name: string;
   description: string | null;
@@ -78,11 +113,11 @@ interface PrecyProductRow {
   catalog_starting_price: number | null;
   catalog_promo_price: number | null;
   catalog_photos: string[] | null;
+  catalog_category_id: string | null;
   catalog_lead_time_days: number | null;
   catalog_checkout_mode: string | null;
-  catalog_category_id: string | null;
 }
-interface PrecyGroupRow {
+interface GroupRow {
   id: string;
   name: string;
   sort_order: number;
@@ -93,107 +128,119 @@ interface PrecyGroupRow {
     sort_order: number;
   }[];
 }
-interface PrecyVariantRow {
+interface VariantRow {
   id: string;
   sku: string | null;
   price: number | null;
   stock_quantity: number | null;
   lead_time_days: number | null;
-  image_id: string | null;
   sort_order: number;
   product_variant_option_values: { option_id: string; group_id: string }[];
 }
-
-function assertUsable() {
-  if (!PRECY_ENABLED) {
-    throw new PrecyNotReadyError(
-      "Integração Precy+ desligada (PRECY_ENABLED != true).",
-    );
-  }
-  if (!PRECY_SUPABASE_ANON_KEY) {
-    throw new PrecyNotReadyError(
-      "PRECY_SUPABASE_ANON_KEY não configurada — método de acesso ao catálogo online do Precy+ ainda não confirmado.",
-    );
-  }
+interface ImageRow {
+  id: string;
+  url: string;
+  sort_order: number;
 }
 
-export class PrecyNotReadyError extends Error {}
-
-async function rest<T>(path: string): Promise<T> {
-  const res = await fetch(`${PRECY_SUPABASE_URL}/rest/v1/${path}`, {
-    headers: {
-      apikey: PRECY_SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${PRECY_SUPABASE_ANON_KEY}`,
-    },
-    // server-side apenas
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(`Precy+ PostgREST ${res.status}: ${await res.text()}`);
-  return (await res.json()) as T;
-}
-
-/** Extrai o slug da loja a partir da URL cadastrada. */
-export function parseStoreSlug(url: string): string | null {
-  const m = url.match(/\/loja\/([^/?#]+)/i);
-  return m ? decodeURIComponent(m[1]) : null;
-}
-
-async function fetchProduct(externalId: string): Promise<ProviderProduct | null> {
-  const [rows, images, groups, variants] = await Promise.all([
-    rest<PrecyProductRow[]>(
-      `products?select=${P_SELECT.product}&id=eq.${externalId}&is_published_catalog=eq.true`,
-    ),
-    rest<{ id: string; url: string; sort_order: number }[]>(
-      `product_images?select=${P_SELECT.images}&product_id=eq.${externalId}&order=sort_order.asc`,
-    ),
-    rest<PrecyGroupRow[]>(
-      `product_variation_groups?select=${P_SELECT.groups}&product_id=eq.${externalId}&order=sort_order.asc&product_variation_options.order=sort_order.asc`,
-    ),
-    rest<PrecyVariantRow[]>(
-      `product_variants?select=${P_SELECT.variants}&product_id=eq.${externalId}&is_active=eq.true&order=sort_order.asc`,
-    ),
-  ]);
-
-  const row = rows[0];
-  if (!row) return null;
-
+function toProviderProduct(
+  row: ListRow,
+  images: ImageRow[],
+  groups: GroupRow[],
+  variants: VariantRow[],
+  categoryName: string | null,
+): ProviderProduct {
   return {
     externalId: row.id,
-    name: row.name,
+    name: row.name.trim(),
     url: null,
     description: row.description,
-    category: row.catalog_category_id, // id — resolver nome numa etapa futura
-    basePrice:
-      row.catalog_promo_price ?? row.catalog_starting_price ?? row.final_price,
+    category: categoryName ?? null,
+    basePrice: row.final_price,
+    startingPrice: row.catalog_starting_price,
+    promoPrice: row.catalog_promo_price,
     leadTimeDays: row.catalog_lead_time_days,
+    checkoutMode: row.catalog_checkout_mode,
     photoUrls: [
       ...(row.catalog_photos ?? []),
-      ...images.map((i) => i.url),
+      ...images.sort((a, b) => a.sort_order - b.sort_order).map((i) => i.url),
     ],
-    variationGroups: groups.map((g) => ({
-      externalId: g.id,
-      name: g.name,
-      options: (g.product_variation_options ?? []).map((o) => ({
-        externalId: o.id,
-        value: o.value,
+    variationGroups: groups
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map((g) => ({
+        externalId: g.id,
+        name: g.name,
+        options: (g.product_variation_options ?? [])
+          .sort((a, b) => a.sort_order - b.sort_order)
+          .map((o) => ({ externalId: o.id, value: o.value })),
       })),
-    })),
-    variants: variants.map((v) => ({
-      externalId: v.id,
-      sku: v.sku,
-      price: v.price,
-      stockQuantity: v.stock_quantity,
-      leadTimeDays: v.lead_time_days,
-      optionExternalIds: (v.product_variant_option_values ?? []).map(
-        (o) => o.option_id,
-      ),
-    })),
+    variants: variants
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map((v) => ({
+        externalId: v.id,
+        sku: v.sku,
+        // preço da variante quando definido; senão cai no preço base
+        price: v.price ?? row.catalog_promo_price ?? row.final_price,
+        stockQuantity: v.stock_quantity,
+        leadTimeDays: v.lead_time_days,
+        optionExternalIds: (v.product_variant_option_values ?? []).map(
+          (o) => o.option_id,
+        ),
+      })),
   };
+}
+
+async function fetchProductDetail(
+  row: ListRow,
+  categoryName: string | null,
+): Promise<ProviderProduct> {
+  const pid = row.id;
+  const [images, groups, variants] = await Promise.all([
+    rest<ImageRow[]>(
+      `product_images?product_id=eq.${pid}&select=${SELECT.images}&order=sort_order.asc`,
+    ),
+    rest<GroupRow[]>(
+      `product_variation_groups?product_id=eq.${pid}&select=${SELECT.groups}&order=sort_order.asc&product_variation_options.order=sort_order.asc`,
+    ),
+    rest<VariantRow[]>(
+      `product_variants?product_id=eq.${pid}&is_active=eq.true&select=${SELECT.variants}&order=sort_order.asc`,
+    ),
+  ]);
+  return toProviderProduct(row, images, groups, variants, categoryName);
+}
+
+async function categoryMap(externalCompanyId: string): Promise<Map<string, string>> {
+  try {
+    const rows = await rest<{ id: string; name: string }[]>(
+      `catalog_categories?company_id=eq.${externalCompanyId}&select=id,name`,
+    );
+    return new Map(rows.map((c) => [c.id, c.name]));
+  } catch {
+    return new Map();
+  }
+}
+
+/** Concorrência limitada para não martelar o PostgREST do Precy+. */
+async function mapLimited<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let i = 0;
+  async function worker() {
+    while (i < items.length) {
+      const idx = i++;
+      out[idx] = await fn(items[idx]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
 }
 
 export const precyCatalogProvider: CatalogProvider = {
   id: "precy",
-  isReal: PRECY_ENABLED,
+  isReal: PRECY_ENABLED && !!PRECY_SUPABASE_ANON_KEY,
 
   async testConnection(config: CatalogProviderConfig) {
     const slug = parseStoreSlug(config.url);
@@ -207,36 +254,59 @@ export const precyCatalogProvider: CatalogProvider = {
     if (!PRECY_ENABLED || !PRECY_SUPABASE_ANON_KEY) {
       return {
         ok: false,
-        message:
-          "URL válida e reconhecida (loja \"" +
-          slug +
-          "\"). A sincronização automática depende de confirmar com o Precy+ o método oficial de acesso ao catálogo — por ora, use \"Abrir catálogo\".",
+        message: "Integração Precy+ desabilitada nesta instância.",
       };
     }
     try {
-      // ping leve no PostgREST do Precy+
-      await rest("products?select=id&limit=1&is_published_catalog=eq.true");
-      return { ok: true, message: `Conectado ao catálogo da loja "${slug}".` };
+      const store = await resolveStore(slug);
+      if (!store) {
+        return {
+          ok: false,
+          message: `Nenhuma loja "${slug}" encontrada no Precy+. Confira a URL.`,
+        };
+      }
+      const count = await rest<{ id: string }[]>(
+        `products?company_id=eq.${store.externalCompanyId}&is_published_catalog=eq.true&select=id`,
+      );
+      return {
+        ok: true,
+        message: `Conectado à loja "${slug}" — ${count.length} produto(s) publicado(s).`,
+      };
     } catch (e) {
       return { ok: false, message: `Falha ao conectar: ${(e as Error).message}` };
     }
   },
 
   async listProducts(config: CatalogProviderConfig): Promise<ProviderProduct[]> {
-    assertUsable();
     const slug = parseStoreSlug(config.url);
-    // PENDENTE: a query "produtos publicados da loja <slug>" não é conhecida
-    // (a listagem do Precy+ é server-side). Quando o Precy+ confirmar a coluna
-    // de loja/dono em `products` (ou um endpoint), implementar aqui.
-    throw new PrecyNotReadyError(
-      `listProducts ainda não implementado para a loja "${slug}": ` +
-        "falta confirmar com o Precy+ como listar os produtos publicados de uma loja. " +
-        "getProduct(externalId) já funciona.",
+    if (!slug) throw new PrecyNotReadyError("URL da loja inválida.");
+    const store = await resolveStore(slug);
+    if (!store) throw new PrecyNotReadyError(`Loja "${slug}" não encontrada no Precy+.`);
+
+    const [list, cats] = await Promise.all([
+      rest<ListRow[]>(
+        `products?company_id=eq.${store.externalCompanyId}&is_published_catalog=eq.true&select=${SELECT.productList}&order=name.asc`,
+      ),
+      categoryMap(store.externalCompanyId),
+    ]);
+
+    return mapLimited(list, 5, (row) =>
+      fetchProductDetail(row, row.catalog_category_id ? cats.get(row.catalog_category_id) ?? null : null),
     );
   },
 
   async getProduct(config: CatalogProviderConfig, externalId: string) {
-    assertUsable();
-    return fetchProduct(externalId);
+    const slug = parseStoreSlug(config.url);
+    const store = slug ? await resolveStore(slug) : null;
+    const rows = await rest<ListRow[]>(
+      `products?id=eq.${externalId}&is_published_catalog=eq.true&select=${SELECT.productList}&limit=1`,
+    );
+    const row = rows[0];
+    if (!row) return null;
+    const cats = store ? await categoryMap(store.externalCompanyId) : new Map<string, string>();
+    return fetchProductDetail(
+      row,
+      row.catalog_category_id ? cats.get(row.catalog_category_id) ?? null : null,
+    );
   },
 };

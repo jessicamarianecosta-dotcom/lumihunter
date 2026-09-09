@@ -96,8 +96,15 @@ export interface ProviderProductRef {
 export interface ProviderProduct extends ProviderProductRef {
   description: string | null;
   category: string | null;
+  /** Preço base (final_price no Precy+). */
   basePrice: number | null;
+  /** "A partir de" (catalog_starting_price). */
+  startingPrice: number | null;
+  /** Promoção (catalog_promo_price). */
+  promoPrice: number | null;
   leadTimeDays: number | null;
+  /** ex.: "quote" → produto vai para orçamento, não checkout direto. */
+  checkoutMode: string | null;
   photoUrls: string[];
   variationGroups: {
     externalId: string;

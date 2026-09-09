@@ -16,6 +16,8 @@ interface Props {
   status: string | null;
   lastSyncAt: string | null;
   productsCount: number;
+  lastSyncSummary: Record<string, number> | null;
+  errorMessage: string | null;
   canWrite: boolean;
 }
 
@@ -26,6 +28,8 @@ export function PrecySourceCard({
   status,
   lastSyncAt,
   productsCount,
+  lastSyncSummary,
+  errorMessage,
   canWrite,
 }: Props) {
   const router = useRouter();
@@ -85,12 +89,28 @@ export function PrecySourceCard({
       </div>
 
       {url && (
-        <p className="mt-1 text-xs text-muted-foreground">
-          {productsCount} produto(s) sincronizado(s)
-          {lastSyncAt
-            ? ` · última sincronização ${new Date(lastSyncAt).toLocaleDateString("pt-BR")}`
-            : " · nunca sincronizado"}
-        </p>
+        <>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {productsCount} produto(s) sincronizado(s)
+            {lastSyncAt
+              ? ` · última sincronização ${new Date(lastSyncAt).toLocaleString("pt-BR")}`
+              : " · nunca sincronizado"}
+          </p>
+          {lastSyncSummary && (
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {`✓ ${lastSyncSummary.updated ?? 0} atualizados · ✓ ${lastSyncSummary.created ?? 0} novos`}
+              {lastSyncSummary.removed
+                ? ` · ${lastSyncSummary.removed} removidos`
+                : ""}
+              {lastSyncSummary.needsReview
+                ? ` · ⚠ ${lastSyncSummary.needsReview} p/ revisão`
+                : ""}
+            </p>
+          )}
+          {errorMessage && (
+            <p className="mt-0.5 text-xs text-destructive">{errorMessage}</p>
+          )}
+        </>
       )}
 
       <form action={action} className="mt-3 space-y-2">

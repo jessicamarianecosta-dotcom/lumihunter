@@ -102,6 +102,10 @@ export async function CatalogSources({
           status={online?.status ?? null}
           lastSyncAt={online?.last_sync_at ?? null}
           productsCount={online?.products_count ?? 0}
+          lastSyncSummary={
+            (online?.last_sync_summary as Record<string, number> | null) ?? null
+          }
+          errorMessage={online?.error_message ?? null}
           canWrite={canWrite}
         />
       </div>

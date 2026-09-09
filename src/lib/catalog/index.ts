@@ -14,7 +14,10 @@ export {
 } from "./resolve";
 
 import { searchCatalog } from "./search";
+import { livePrecySearch } from "./live";
 import type { CommercialProduct, SearchOutcome } from "./types";
+
+export { livePrecySearch, precyIsConsultable } from "./live";
 
 /** Instrução anti-invenção — injetada no system prompt de todo agente comercial. */
 export const ANTI_INVENTION_RULE = `REGRA ABSOLUTA — NUNCA INVENTE informação comercial.
@@ -144,10 +147,27 @@ export async function buildCommercialContext(args: {
   message: string;
 }): Promise<{ outcome: SearchOutcome; contextText: string; derived: DerivedQuery }> {
   const derived = deriveCommercialQuery(args.message);
-  const outcome = await searchCatalog({
+  let outcome = await searchCatalog({
     companyId: args.companyId,
     query: derived.query,
     requestedSpecs: derived.specs,
   });
+
+  // Fallback: nada na base local → consulta o catálogo online conectado (Precy+).
+  if (outcome.kind === "NOT_FOUND") {
+    const words = derived.query.split(/\s+/).map((w) => w.toLowerCase());
+    const remote = await livePrecySearch({
+      companyId: args.companyId,
+      query: derived.query,
+      words,
+      requestedSpecs: derived.specs,
+    });
+    if (remote && remote.kind !== "NOT_FOUND") outcome = remote;
+    else if (remote) {
+      // remoto também vazio: registra que ambas as fontes foram checadas
+      outcome = { ...outcome, sourcesChecked: [...outcome.sourcesChecked, { source: "precy_online", ok: true }] };
+    }
+  }
+
   return { outcome, contextText: renderCommercialContext(outcome), derived };
 }
