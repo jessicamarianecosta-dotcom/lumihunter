@@ -95,6 +95,40 @@ export async function updateCampaign(campaignId: string, formData: FormData) {
   revalidatePath(`/campanhas/${campaignId}`);
 }
 
+export async function saveOutreachSettings(campaignId: string, formData: FormData) {
+  const ctx = await getAppContext();
+  if (!canWrite(ctx.role)) throw new Error("sem permissão");
+  const supabase = await createClient();
+
+  const num = (k: string, min: number, max: number, def: number) => {
+    const n = Number(formData.get(k));
+    return Number.isFinite(n) && n >= min && n <= max ? Math.round(n) : def;
+  };
+  const time = (k: string, def: string) => {
+    const v = String(formData.get(k) || "");
+    return /^\d{2}:\d{2}$/.test(v) ? v : def;
+  };
+
+  await supabase
+    .from("campaigns")
+    .update({
+      outreach_base_message:
+        String(formData.get("base_message") || "").trim() || null,
+      outreach_daily_limit: num("daily_limit", 1, 500, 20),
+      outreach_window_start: time("window_start", "09:00"),
+      outreach_window_end: time("window_end", "18:00"),
+      outreach_min_interval_seconds: num("min_interval", 5, 3600, 30),
+      outreach_personalize_ai: formData.get("personalize_ai") === "on",
+      outreach_send_catalog: formData.get("send_catalog") === "on",
+      outreach_catalog_product_id:
+        String(formData.get("catalog_product_id") || "").trim() || null,
+    })
+    .eq("id", campaignId)
+    .eq("company_id", ctx.company.id);
+
+  revalidatePath(`/campanhas/${campaignId}`);
+}
+
 export async function setCampaignStatus(campaignId: string, status: string) {
   const ctx = await getAppContext();
   if (!canWrite(ctx.role)) throw new Error("sem permissão");

@@ -6,6 +6,13 @@ import {
   parseIncomingWebhook,
   verifyIncomingWebhookSignature,
 } from "@/lib/whatsapp/service";
+import { looksLikeOptOut, recordOptOut } from "@/lib/outreach/optout";
+
+const OUTREACH_STATUS_COLUMN: Record<string, string> = {
+  delivered: "delivered_at",
+  read: "read_at",
+  failed: "failed_at",
+};
 
 // GET: handshake de verificação da Meta (sem corpo, sem assinatura)
 export async function GET(req: NextRequest) {
@@ -68,6 +75,23 @@ export async function POST(req: NextRequest) {
       console.error(
         `[whatsapp/webhook] falha ao atualizar status ${s.status}: ${error.message}`,
       );
+
+    // espelha o status na fila de prospecção (Fase 2)
+    const tsCol = OUTREACH_STATUS_COLUMN[s.status];
+    if (tsCol) {
+      const ts = new Date(Number(s.timestamp) * 1000 || Date.now()).toISOString();
+      const patch =
+        tsCol === "delivered_at"
+          ? { status: s.status, delivered_at: ts }
+          : tsCol === "read_at"
+            ? { status: s.status, read_at: ts }
+            : { status: s.status, failed_at: ts };
+      await admin
+        .from("outreach_queue")
+        .update(patch)
+        .eq("provider_message_id", s.providerMessageId)
+        .in("status", ["sent", "delivered"]);
+    }
   }
 
   // ── Mensagens recebidas ─────────────────────────────────────────────────
@@ -180,6 +204,34 @@ export async function POST(req: NextRequest) {
       .update({ status: "replied" })
       .eq("id", lead.id)
       .in("status", ["new", "qualified", "contacted"]);
+
+    // Fase 2: o lead respondeu → parar novos contatos automáticos para ele
+    await admin
+      .from("outreach_queue")
+      .update({ status: "replied", replied_at: new Date().toISOString() })
+      .eq("lead_id", lead.id)
+      .in("status", ["draft", "ready", "scheduled", "sending", "sent", "delivered", "read"]);
+
+    await admin
+      .from("campaign_targets")
+      .update({ status: "replied" })
+      .eq("lead_id", lead.id)
+      .not("status", "in", "(replied,opted_out)");
+
+    // opt-out explícito → bloqueio definitivo (vale para qualquer campanha)
+    if (looksLikeOptOut(msg.text)) {
+      await recordOptOut(admin, {
+        companyId,
+        leadId: lead.id,
+        phone: msg.from,
+        source: "resposta no WhatsApp",
+      });
+      await admin
+        .from("outreach_queue")
+        .update({ status: "opted_out" })
+        .eq("lead_id", lead.id)
+        .not("status", "in", "(sent,delivered,read,replied)");
+    }
 
     console.log(
       `[whatsapp/webhook] OK — conversa ${conversation.id} + mensagem inbound para o lead ${lead.id}`,

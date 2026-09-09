@@ -463,6 +463,19 @@ export type Database = {
           target_count: number | null
           template_id: string | null
           updated_at: string
+          outreach_status: string
+          outreach_daily_limit: number
+          outreach_window_start: string
+          outreach_window_end: string
+          outreach_min_interval_seconds: number
+          outreach_timezone: string
+          outreach_base_message: string | null
+          outreach_personalize_ai: boolean
+          outreach_send_catalog: boolean
+          outreach_catalog_product_id: string | null
+          outreach_consecutive_errors: number
+          outreach_last_sent_at: string | null
+          outreach_started_at: string | null
         }
         Insert: {
           audience_text?: string | null
@@ -488,6 +501,19 @@ export type Database = {
           target_count?: number | null
           template_id?: string | null
           updated_at?: string
+          outreach_status?: string
+          outreach_daily_limit?: number
+          outreach_window_start?: string
+          outreach_window_end?: string
+          outreach_min_interval_seconds?: number
+          outreach_timezone?: string
+          outreach_base_message?: string | null
+          outreach_personalize_ai?: boolean
+          outreach_send_catalog?: boolean
+          outreach_catalog_product_id?: string | null
+          outreach_consecutive_errors?: number
+          outreach_last_sent_at?: string | null
+          outreach_started_at?: string | null
         }
         Update: {
           audience_text?: string | null
@@ -513,6 +539,19 @@ export type Database = {
           target_count?: number | null
           template_id?: string | null
           updated_at?: string
+          outreach_status?: string
+          outreach_daily_limit?: number
+          outreach_window_start?: string
+          outreach_window_end?: string
+          outreach_min_interval_seconds?: number
+          outreach_timezone?: string
+          outreach_base_message?: string | null
+          outreach_personalize_ai?: boolean
+          outreach_send_catalog?: boolean
+          outreach_catalog_product_id?: string | null
+          outreach_consecutive_errors?: number
+          outreach_last_sent_at?: string | null
+          outreach_started_at?: string | null
         }
         Relationships: [
           {
@@ -2125,6 +2164,116 @@ export type Database = {
           },
           {
             foreignKeyName: "notes_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      outreach_queue: {
+        Row: {
+          attempt_count: number
+          campaign_id: string
+          campaign_target_id: string
+          catalog_included: boolean
+          catalog_message_id: string | null
+          company_id: string
+          created_at: string
+          created_by: string | null
+          delivered_at: string | null
+          failed_at: string | null
+          failure_code: string | null
+          failure_reason: string | null
+          id: string
+          last_attempt_at: string | null
+          lead_id: string
+          message_body: string | null
+          personalized_by: string | null
+          provider_message_id: string | null
+          read_at: string | null
+          replied_at: string | null
+          scheduled_at: string | null
+          sent_at: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          attempt_count?: number
+          campaign_id: string
+          campaign_target_id: string
+          catalog_included?: boolean
+          catalog_message_id?: string | null
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          delivered_at?: string | null
+          failed_at?: string | null
+          failure_code?: string | null
+          failure_reason?: string | null
+          id?: string
+          last_attempt_at?: string | null
+          lead_id: string
+          message_body?: string | null
+          personalized_by?: string | null
+          provider_message_id?: string | null
+          read_at?: string | null
+          replied_at?: string | null
+          scheduled_at?: string | null
+          sent_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          attempt_count?: number
+          campaign_id?: string
+          campaign_target_id?: string
+          catalog_included?: boolean
+          catalog_message_id?: string | null
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          delivered_at?: string | null
+          failed_at?: string | null
+          failure_code?: string | null
+          failure_reason?: string | null
+          id?: string
+          last_attempt_at?: string | null
+          lead_id?: string
+          message_body?: string | null
+          personalized_by?: string | null
+          provider_message_id?: string | null
+          read_at?: string | null
+          replied_at?: string | null
+          scheduled_at?: string | null
+          sent_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "outreach_queue_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_queue_campaign_target_id_fkey"
+            columns: ["campaign_target_id"]
+            isOneToOne: true
+            referencedRelation: "campaign_targets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_queue_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_queue_lead_id_fkey"
             columns: ["lead_id"]
             isOneToOne: false
             referencedRelation: "leads"

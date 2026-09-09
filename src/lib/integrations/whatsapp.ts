@@ -70,6 +70,65 @@ export async function sendWhatsAppText(
   }
 }
 
+interface SendDocumentArgs {
+  to: string;
+  /** URL pública HTTPS do PDF. */
+  link: string;
+  filename: string;
+  /** legenda opcional. */
+  caption?: string;
+  phoneNumberId?: string;
+  accessToken?: string;
+}
+
+/** Envia um documento (ex.: catálogo PDF) pelo WhatsApp Cloud API. */
+export async function sendWhatsAppDocument(
+  args: SendDocumentArgs,
+): Promise<WhatsAppSendResult> {
+  const phoneNumberId = args.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const token = args.accessToken || process.env.WHATSAPP_ACCESS_TOKEN;
+  const to = args.to.replace(/\D/g, "");
+  const enabled = ENABLED || !!args.accessToken;
+
+  if (!enabled || !phoneNumberId || !token) {
+    return { ok: true, simulated: true, providerMessageId: `sim_wa_doc_${Date.now()}` };
+  }
+
+  try {
+    const res = await fetch(
+      `https://graph.facebook.com/${API_VERSION}/${phoneNumberId}/messages`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to,
+          type: "document",
+          document: {
+            link: args.link,
+            filename: args.filename,
+            ...(args.caption ? { caption: args.caption } : {}),
+          },
+        }),
+      },
+    );
+    const data = (await res.json()) as {
+      messages?: { id: string }[];
+      error?: { message: string; code?: number };
+    };
+    if (!res.ok || data.error) {
+      return { ok: false, error: data.error?.message || `HTTP ${res.status}` };
+    }
+    return { ok: true, providerMessageId: data.messages?.[0]?.id };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
 export type WebhookSignatureResult = "valid" | "invalid" | "unconfigured";
 
 /**

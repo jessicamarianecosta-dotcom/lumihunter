@@ -20,6 +20,14 @@ export interface SendTextMessageArgs {
   body: string;
 }
 
+export interface SendDocumentArgs {
+  to: string;
+  /** URL pública HTTPS do arquivo. */
+  link: string;
+  filename: string;
+  caption?: string;
+}
+
 export interface SendMessageResult {
   ok: boolean;
   /** Id da mensagem no provedor — vai para `messages.provider_message_id`. */
@@ -77,6 +85,12 @@ export interface WhatsAppProvider {
   sendTextMessage(
     config: WhatsAppProviderConfig,
     args: SendTextMessageArgs,
+  ): Promise<SendMessageResult>;
+
+  /** Envia um documento (ex.: catálogo PDF) por URL pública. Opcional por provider. */
+  sendDocument?(
+    config: WhatsAppProviderConfig,
+    args: SendDocumentArgs,
   ): Promise<SendMessageResult>;
 
   /** Valida o handshake GET de verificação do webhook (quando o provedor exigir). */

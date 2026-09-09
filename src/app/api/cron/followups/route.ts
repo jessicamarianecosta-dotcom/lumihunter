@@ -1,11 +1,16 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendMessage as sendWhatsAppMessage } from "@/lib/whatsapp/service";
+import { drainRunningCampaigns } from "@/lib/outreach/worker";
 import { normalizePhoneBR } from "@/lib/utils";
 
+export const maxDuration = 300;
+
 /**
- * Processa a fila de follow-up das campanhas.
- * Protegido por CRON_SECRET (Authorization: Bearer ...). Configure em vercel.json.
+ * Cron diário (Vercel Hobby permite 1x/dia). Processa:
+ *  1. a fila de prospecção da Fase 2 (`outreach_queue`);
+ *  2. as sequências de follow-up antigas.
+ * Protegido por CRON_SECRET (Authorization: Bearer ...).
  */
 export async function GET(req: NextRequest) {
   const auth = req.headers.get("authorization");
@@ -18,6 +23,9 @@ export async function GET(req: NextRequest) {
 
   const admin = createAdminClient();
   const nowIso = new Date().toISOString();
+
+  // 1) Fila de prospecção (Fase 2) — orçamento de 200s, deixa o resto p/ follow-ups
+  const outreach = await drainRunningCampaigns(admin, { budgetMs: 200_000 });
 
   const { data: due } = await admin
     .from("campaign_targets")
@@ -95,5 +103,5 @@ export async function GET(req: NextRequest) {
     processed++;
   }
 
-  return NextResponse.json({ due: due?.length ?? 0, processed });
+  return NextResponse.json({ outreach, followups: { due: due?.length ?? 0, processed } });
 }

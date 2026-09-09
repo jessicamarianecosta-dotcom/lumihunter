@@ -9,16 +9,20 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { DispatchButton } from "@/components/campanhas/dispatch-button";
 import { DiscoveryPanel } from "@/components/campanhas/discovery-panel";
 import {
   DiscoveryResults,
   type DiscoveryRow,
 } from "@/components/campanhas/discovery-results";
+import {
+  OutreachPanel,
+  type QueueRow,
+} from "@/components/campanhas/outreach-panel";
 import { tavilyConfigured } from "@/lib/tavily";
+import { resolveCampaignCatalogPdf } from "@/lib/outreach/catalog";
 import {
   addCampaignTargets,
-  setCampaignStatus,
+  saveOutreachSettings,
   updateCampaign,
 } from "./actions";
 
@@ -57,6 +61,8 @@ export default async function CampanhaPage({
     { data: products },
     { count: approvedAllTime },
     { data: lastRun },
+    { data: queueRaw },
+    catalogPdf,
   ] = await Promise.all([
     supabase
       .from("campaign_targets")
@@ -93,10 +99,29 @@ export default async function CampanhaPage({
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
+    supabase
+      .from("outreach_queue")
+      .select(
+        "id, lead_id, status, message_body, personalized_by, catalog_included, failure_reason, leads(name, whatsapp)",
+      )
+      .eq("campaign_id", id)
+      .not("status", "in", "(cancelled)")
+      .order("created_at", { ascending: true })
+      .limit(400),
+    campaign.channel === "whatsapp" && campaign.outreach_send_catalog
+      ? resolveCampaignCatalogPdf(
+          supabase,
+          ctx.company.id,
+          {
+            outreach_catalog_product_id: campaign.outreach_catalog_product_id,
+            product_id: campaign.product_id,
+          },
+          ctx.company.name,
+        )
+      : Promise.resolve(null),
   ]);
 
   const rows = targets ?? [];
-  const byStatus = (s: string) => rows.filter((t) => t.status === s).length;
 
   const disc = (discoveries ?? []) as unknown as DiscoveryRow[];
   const discFound = disc.length;
@@ -130,13 +155,60 @@ export default async function CampanhaPage({
     { k: "Qualificados", v: discQualified },
     { k: "Aprovados", v: discApproved },
   ];
-  const targetStats = [
-    { k: "Alvos", v: rows.length },
-    { k: "Pendentes", v: byStatus("pending") },
-    { k: "Enviados", v: byStatus("sent") },
-    { k: "Responderam", v: byStatus("replied") },
-    { k: "Pulados", v: byStatus("skipped") },
+  // ── Abordagem (fila de WhatsApp) ──────────────────────────────────────
+  type QueueRaw = {
+    id: string;
+    lead_id: string;
+    status: string;
+    message_body: string | null;
+    personalized_by: string | null;
+    catalog_included: boolean;
+    failure_reason: string | null;
+    leads: { name: string | null; whatsapp: string | null } | null;
+  };
+  const queue = (queueRaw ?? []) as unknown as QueueRaw[];
+  const qBy = (s: string) => queue.filter((q) => q.status === s).length;
+
+  const fitByLead = new Map<string, { b: number | null; p: number | null }>();
+  if (queue.length) {
+    const { data: fits } = await supabase
+      .from("lead_discoveries")
+      .select("lead_id, buyer_fit_score, product_fit_score")
+      .eq("company_id", ctx.company.id)
+      .in("lead_id", [...new Set(queue.map((q) => q.lead_id))]);
+    for (const f of fits ?? [])
+      if (f.lead_id)
+        fitByLead.set(f.lead_id, { b: f.buyer_fit_score, p: f.product_fit_score });
+  }
+
+  const queueRows: QueueRow[] = queue.map((q) => ({
+    id: q.id,
+    lead_id: q.lead_id,
+    lead_name: q.leads?.name ?? null,
+    whatsapp: q.leads?.whatsapp ?? null,
+    buyer_fit: fitByLead.get(q.lead_id)?.b ?? null,
+    product_fit: fitByLead.get(q.lead_id)?.p ?? null,
+    status: q.status,
+    message_body: q.message_body,
+    personalized_by: q.personalized_by,
+    catalog_included: q.catalog_included,
+    failure_reason: q.failure_reason,
+  }));
+
+  const outreachStats = [
+    { k: "Na fila", v: qBy("draft") + qBy("ready") + qBy("scheduled") },
+    { k: "Enviados", v: qBy("sent") + qBy("delivered") + qBy("read") + qBy("replied") },
+    { k: "Entregues", v: qBy("delivered") + qBy("read") },
+    { k: "Lidos", v: qBy("read") },
+    { k: "Responderam", v: qBy("replied") },
+    { k: "Opt-outs", v: qBy("opted_out") },
+    { k: "Falhas", v: qBy("failed") },
   ];
+
+  const approvedTargets = rows.filter((t) =>
+    ["pending", "sent", "replied"].includes(t.status),
+  ).length;
+  const withWhatsapp = queue.filter((q) => q.leads?.whatsapp).length;
 
   return (
     <div className="space-y-5">
@@ -313,10 +385,10 @@ export default async function CampanhaPage({
           ))}
         </div>
         <p className="mb-2 mt-4 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Abordagem
+          Abordagem — fila de WhatsApp
         </p>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-          {targetStats.map((s) => (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+          {outreachStats.map((s) => (
             <Card key={s.k}>
               <CardContent className="p-4">
                 <p className="text-xl font-semibold tabular-nums">{s.v}</p>
@@ -350,32 +422,97 @@ export default async function CampanhaPage({
         </CardContent>
       </Card>
 
-      {/* ── 3. Prospecção (abordagem) ────────────────────────────────── */}
-      {writable && (
+      {/* ── 3 + 4. Preparar abordagem & fila de WhatsApp ─────────────── */}
+      {writable && campaign.channel === "whatsapp" && (
         <Card>
-          <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-start sm:justify-between">
-            <div className="space-y-2">
-              <p className="text-sm font-medium">3. Prospecção</p>
-              <p className="text-[11px] text-muted-foreground">
-                Os leads aprovados acima já entram aqui. Você também pode puxar
-                leads existentes do segmento/cidade da campanha.
-              </p>
-              <form action={addCampaignTargets.bind(null, id)}>
-                <Button size="sm" variant="outline">
-                  Adicionar leads existentes que batem com o filtro
-                </Button>
+          <CardContent className="space-y-4 p-4">
+            <details className="rounded-lg border">
+              <summary className="flex cursor-pointer list-none items-center gap-2 p-3 text-sm font-medium [&::-webkit-details-marker]:hidden">
+                <Pencil className="size-4" /> Configurações de abordagem
+              </summary>
+              <form
+                action={saveOutreachSettings.bind(null, id)}
+                className="grid gap-3 border-t p-3 sm:grid-cols-2"
+              >
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label htmlFor="base_message">Mensagem de abordagem (base)</Label>
+                  <textarea
+                    id="base_message"
+                    name="base_message"
+                    rows={5}
+                    defaultValue={campaign.outreach_base_message ?? ""}
+                    placeholder={
+                      "Olá! Tudo bem? 😊\n\nEncontrei a {{empresa}} durante uma pesquisa sobre {{segmento}} em {{cidade}}.\n\nSomos da LumiLife e trabalhamos com materiais gráficos e personalizados. Posso te enviar nosso catálogo?"
+                    }
+                    className="w-full rounded-md border border-input bg-background p-2 text-sm"
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Variáveis: {"{{empresa}} {{cidade}} {{estado}} {{segmento}} {{produto}} {{site}}"}.
+                    Variável vazia é removida — nada é inventado.
+                  </p>
+                </div>
+                <F name="daily_limit" label="Limite diário" type="number" defaultValue={campaign.outreach_daily_limit} />
+                <F name="min_interval" label="Intervalo mínimo (segundos)" type="number" defaultValue={campaign.outreach_min_interval_seconds} />
+                <F name="window_start" label="Horário — início" type="time" defaultValue={campaign.outreach_window_start} />
+                <F name="window_end" label="Horário — fim" type="time" defaultValue={campaign.outreach_window_end} />
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" name="personalize_ai" defaultChecked={campaign.outreach_personalize_ai} className="size-4" />
+                  Personalizar mensagens com IA
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" name="send_catalog" defaultChecked={campaign.outreach_send_catalog} className="size-4" />
+                  Enviar catálogo PDF
+                </label>
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label htmlFor="catalog_product_id">Catálogo (produto do catálogo — opcional)</Label>
+                  <select
+                    id="catalog_product_id"
+                    name="catalog_product_id"
+                    defaultValue={campaign.outreach_catalog_product_id ?? ""}
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="">— usar o PDF do produto da campanha —</option>
+                    {(products ?? []).map((pr) => (
+                      <option key={pr.id} value={pr.id}>
+                        {pr.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="sm:col-span-2">
+                  <Button size="sm" type="submit">
+                    Salvar configurações
+                  </Button>
+                </div>
               </form>
-            </div>
-            <div className="space-y-2">
-              <p className="text-sm font-medium">Disparar</p>
-              {campaign.status === "active" ? (
-                <DispatchButton campaignId={id} pending={byStatus("pending")} />
-              ) : (
-                <form action={setCampaignStatus.bind(null, id, "active")}>
-                  <Button size="sm">Ativar campanha para disparar</Button>
-                </form>
-              )}
-            </div>
+            </details>
+
+            <OutreachPanel
+              campaignId={id}
+              outreachStatus={campaign.outreach_status}
+              minIntervalSeconds={campaign.outreach_min_interval_seconds}
+              dailyLimit={campaign.outreach_daily_limit}
+              windowStart={campaign.outreach_window_start}
+              windowEnd={campaign.outreach_window_end}
+              catalogEnabled={campaign.outreach_send_catalog}
+              catalogFilename={catalogPdf?.filename ?? null}
+              approvedTargets={approvedTargets}
+              withWhatsapp={withWhatsapp}
+              rows={queueRows}
+            />
+
+            <form action={addCampaignTargets.bind(null, id)} className="border-t pt-3">
+              <Button size="sm" variant="ghost">
+                + Adicionar leads existentes que batem com o filtro
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      )}
+      {writable && campaign.channel !== "whatsapp" && (
+        <Card>
+          <CardContent className="p-4 text-sm text-muted-foreground">
+            A fila de prospecção da Fase 2 é só para campanhas com canal WhatsApp.
           </CardContent>
         </Card>
       )}
@@ -452,6 +589,24 @@ export default async function CampanhaPage({
           </div>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function F({
+  name,
+  label,
+  defaultValue,
+  ...props
+}: {
+  name: string;
+  label: string;
+  defaultValue?: string | number;
+} & React.InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={name}>{label}</Label>
+      <Input id={name} name={name} defaultValue={defaultValue} {...props} />
     </div>
   );
 }

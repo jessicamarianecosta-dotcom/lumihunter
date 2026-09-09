@@ -3,6 +3,7 @@ import { metaCloudApiProvider } from "./providers/meta-cloud-api";
 import { ycloudProvider } from "./providers/ycloud";
 import type {
   ParsedWebhook,
+  SendDocumentArgs,
   SendMessageResult,
   SendTextMessageArgs,
   WebhookSignatureResult,
@@ -88,6 +89,23 @@ export async function sendMessage(
 ): Promise<SendMessageResult & { providerId: WhatsAppProviderId }> {
   const { providerId, provider, config } = await resolveActiveWhatsApp(companyId);
   const result = await provider.sendTextMessage(config, args);
+  return { ...result, providerId };
+}
+
+/** Envia um documento (catálogo PDF). Retorna simulated se o provider não suporta. */
+export async function sendDocument(
+  companyId: string,
+  args: SendDocumentArgs,
+): Promise<SendMessageResult & { providerId: WhatsAppProviderId }> {
+  const { providerId, provider, config } = await resolveActiveWhatsApp(companyId);
+  if (!provider.sendDocument) {
+    return {
+      ok: false,
+      error: `O provedor "${providerId}" não suporta envio de documento.`,
+      providerId,
+    };
+  }
+  const result = await provider.sendDocument(config, args);
   return { ...result, providerId };
 }
 

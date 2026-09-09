@@ -7,6 +7,7 @@
  */
 import {
   sendWhatsAppText,
+  sendWhatsAppDocument,
   verifyWebhook,
   verifyMetaWebhookSignature,
   parseInbound,
@@ -14,6 +15,7 @@ import {
 } from "@/lib/integrations/whatsapp";
 import type {
   ParsedWebhook,
+  SendDocumentArgs,
   SendMessageResult,
   SendTextMessageArgs,
   WebhookSignatureResult,
@@ -31,6 +33,20 @@ export const metaCloudApiProvider: WhatsAppProvider = {
     return sendWhatsAppText({
       to: args.to,
       body: args.body,
+      phoneNumberId: config.phone_number_id,
+      accessToken: config.access_token,
+    });
+  },
+
+  async sendDocument(
+    config: WhatsAppProviderConfig,
+    args: SendDocumentArgs,
+  ): Promise<SendMessageResult> {
+    return sendWhatsAppDocument({
+      to: args.to,
+      link: args.link,
+      filename: args.filename,
+      caption: args.caption,
       phoneNumberId: config.phone_number_id,
       accessToken: config.access_token,
     });

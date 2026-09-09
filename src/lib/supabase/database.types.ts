@@ -41,6 +41,7 @@ export type Message = Tables<"messages">;
 export type Campaign = Tables<"campaigns">;
 export type LeadDiscovery = Tables<"lead_discoveries">;
 export type DiscoveryRun = Tables<"discovery_runs">;
+export type OutreachQueueItem = Tables<"outreach_queue">;
 export type Task = Tables<"tasks">;
 export type Activity = Tables<"activities">;
 export type AiAgent = Tables<"ai_agents">;
