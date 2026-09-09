@@ -25,12 +25,27 @@ interface CampaignRow {
  * Retorna o contexto do produto da campanha, ou `null` se a campanha não tem
  * produto nem texto de produto definido (nesse caso a descoberta é bloqueada).
  */
+async function loadCatalogProducts(admin: Admin, companyId: string) {
+  const { data } = await admin
+    .from("products")
+    .select("name, keywords, applications")
+    .eq("company_id", companyId)
+    .eq("is_active", true)
+    .limit(60);
+  return (data ?? []).map((p) => ({
+    name: p.name,
+    keywords: p.keywords ?? [],
+    applications: p.applications ?? [],
+  }));
+}
+
 export async function getCampaignProductContext(
   admin: Admin,
   companyId: string,
   campaign: CampaignRow,
 ): Promise<ProductContext | null> {
   const audience = campaign.audience_text ?? campaign.segment ?? null;
+  const catalogProducts = await loadCatalogProducts(admin, companyId);
 
   if (campaign.product_id) {
     const { data: p } = await admin
@@ -82,6 +97,7 @@ export async function getCampaignProductContext(
         exampleBuyers: p.example_buyers ?? [],
         idealAudience: p.ideal_audience ?? audience,
         variantNames,
+        catalogProducts,
         source: "catalog",
       };
     }
@@ -100,6 +116,7 @@ export async function getCampaignProductContext(
     exampleBuyers: [],
     idealAudience: audience,
     variantNames: [],
+    catalogProducts,
     source: "text",
   };
 }

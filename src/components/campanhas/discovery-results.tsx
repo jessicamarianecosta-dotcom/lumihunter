@@ -36,8 +36,12 @@ export interface DiscoveryRow {
   business_fit_score: number | null;
   result_type: string | null;
   business_type: string | null;
+  individual_business: boolean;
   competitor: boolean;
   whatsapp_verified: boolean;
+  whatsapp_evidence: string | null;
+  product_match_name: string | null;
+  product_match_reason: string | null;
   discard_reason: string | null;
   qualification: string | null;
   qualification_reason: string | null;
@@ -49,28 +53,16 @@ export interface DiscoveryRow {
   discovered_at: string;
 }
 
-type Filter =
-  | "prospectable"
-  | "qualified"
-  | "all"
-  | "high"
-  | "no_whatsapp"
-  | "competitors"
-  | "approved"
-  | "rejected";
+type Filter = "qualified" | "approved" | "rejected" | "all";
 
 const FILTERS: { key: Filter; label: string }[] = [
-  { key: "prospectable", label: "Prospectáveis (com WhatsApp)" },
-  { key: "qualified", label: "Qualificados" },
-  { key: "high", label: "Alto potencial" },
-  { key: "no_whatsapp", label: "Sem WhatsApp" },
-  { key: "competitors", label: "Concorrentes" },
+  { key: "qualified", label: "🔥 Leads de alto potencial" },
   { key: "approved", label: "Já adicionados" },
-  { key: "rejected", label: "Descartados" },
+  { key: "rejected", label: "Descartados (auditoria)" },
   { key: "all", label: "Todos" },
 ];
 
-const SELECTABLE = new Set(["discovered", "qualified"]);
+const SELECTABLE = new Set(["qualified"]);
 
 function qualLabel(q: string | null): { text: string; variant: "success" | "warning" | "danger" | "secondary" } {
   if (q === "high") return { text: "Alto potencial", variant: "success" };
@@ -112,7 +104,7 @@ export function DiscoveryResults({
   rows: DiscoveryRow[];
 }) {
   const router = useRouter();
-  const [filter, setFilter] = useState<Filter>("prospectable");
+  const [filter, setFilter] = useState<Filter>("qualified");
   const [region, setRegion] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -131,20 +123,12 @@ export function DiscoveryResults({
     return rows.filter((r) => {
       if (region && r.city !== region) return false;
       switch (filter) {
-        case "prospectable":
-          return r.whatsapp_verified && !r.competitor && r.status !== "rejected";
         case "qualified":
           return r.status === "qualified" || r.status === "approved";
-        case "high":
-          return r.qualification === "high";
-        case "no_whatsapp":
-          return !r.whatsapp_verified && !r.competitor;
-        case "competitors":
-          return r.competitor;
         case "approved":
           return r.status === "approved";
         case "rejected":
-          return r.status === "rejected" || (!!r.discard_reason && r.status === "discovered");
+          return r.status === "rejected";
         default:
           return true;
       }
@@ -152,15 +136,12 @@ export function DiscoveryResults({
   }, [rows, filter, region]);
 
   const counts = useMemo(() => {
-    const total = rows.length;
-    const prospectable = rows.filter(
-      (r) => r.whatsapp_verified && !r.competitor,
-    ).length;
-    const qualified = rows.filter(
+    const leads = rows.filter(
       (r) => r.status === "qualified" || r.status === "approved",
     ).length;
     const approved = rows.filter((r) => r.status === "approved").length;
-    return { total, prospectable, qualified, approved };
+    const discarded = rows.filter((r) => r.status === "rejected").length;
+    return { leads, approved, discarded, screened: rows.length };
   }, [rows]);
 
   function toggle(id: string) {
@@ -234,19 +215,16 @@ export function DiscoveryResults({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
         <span>
-          <strong className="tabular-nums">{counts.total}</strong> encontrados
-        </span>
-        <span className="text-muted-foreground">
-          <strong className="tabular-nums text-foreground">{counts.prospectable}</strong>{" "}
-          prospectáveis
-        </span>
-        <span className="text-muted-foreground">
-          <strong className="tabular-nums text-foreground">{counts.qualified}</strong>{" "}
-          qualificados
+          🔥 <strong className="tabular-nums">{counts.leads}</strong> leads de alto
+          potencial
         </span>
         <span className="text-muted-foreground">
           <strong className="tabular-nums text-foreground">{counts.approved}</strong>{" "}
-          aprovados
+          já adicionados
+        </span>
+        <span className="text-muted-foreground">
+          <strong className="tabular-nums text-foreground">{counts.discarded}</strong>{" "}
+          descartados · {counts.screened} analisados
         </span>
         {selCount > 0 && (
           <span className="text-accent">
@@ -367,6 +345,9 @@ export function DiscoveryResults({
                     ) : (
                       <Badge variant="warning">Sem WhatsApp</Badge>
                     )}
+                    {r.product_match_name && (
+                      <Badge variant="secondary">🎯 {r.product_match_name}</Badge>
+                    )}
                     {r.qualified_by === "ai" && (
                       <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
                         IA
@@ -455,6 +436,22 @@ export function DiscoveryResults({
                             Por que é um bom lead:{" "}
                           </span>
                           {r.qualification_reason}
+                        </p>
+                      )}
+                      {r.product_match_reason && (
+                        <p>
+                          <span className="font-medium text-foreground">
+                            Produto do catálogo:{" "}
+                          </span>
+                          {r.product_match_reason}
+                        </p>
+                      )}
+                      {r.whatsapp_evidence && (
+                        <p>
+                          <span className="font-medium text-foreground">
+                            Evidência de WhatsApp:{" "}
+                          </span>
+                          {r.whatsapp_evidence}
                         </p>
                       )}
                       {r.evidence?.length > 0 && (

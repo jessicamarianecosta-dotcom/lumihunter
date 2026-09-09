@@ -1575,6 +1575,10 @@ export type Database = {
           channel_requirement: string | null
           competitor: boolean
           discard_reason: string | null
+          individual_business: boolean
+          product_match_name: string | null
+          product_match_reason: string | null
+          whatsapp_evidence: string | null
           whatsapp_verified: boolean
           evidence: Json
           product_fit_score: number | null
@@ -1624,6 +1628,10 @@ export type Database = {
           channel_requirement?: string | null
           competitor?: boolean
           discard_reason?: string | null
+          individual_business?: boolean
+          product_match_name?: string | null
+          product_match_reason?: string | null
+          whatsapp_evidence?: string | null
           whatsapp_verified?: boolean
           evidence?: Json
           product_fit_score?: number | null
@@ -1673,6 +1681,10 @@ export type Database = {
           channel_requirement?: string | null
           competitor?: boolean
           discard_reason?: string | null
+          individual_business?: boolean
+          product_match_name?: string | null
+          product_match_reason?: string | null
+          whatsapp_evidence?: string | null
           whatsapp_verified?: boolean
           evidence?: Json
           product_fit_score?: number | null

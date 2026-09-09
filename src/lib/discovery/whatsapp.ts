@@ -21,27 +21,47 @@ export interface WhatsAppEvidence {
   number: string | null;
   /** true se há evidência suficiente de que É WhatsApp comercial. */
   verified: boolean;
+  /** Trecho/motivo que comprova o WhatsApp (para auditoria). */
+  evidence: string | null;
+}
+
+function snippet(text: string, at: number, len: number): string {
+  const start = Math.max(0, at - 20);
+  return text.slice(start, at + len + 40).replace(/\s+/g, " ").trim();
 }
 
 /** Procura um WhatsApp confirmado no texto (título + conteúdo + html cru). */
 export function findVerifiedWhatsApp(text: string): WhatsAppEvidence {
-  if (!text) return { number: null, verified: false };
+  if (!text) return { number: null, verified: false, evidence: null };
 
   const link = text.match(WA_LINK_RE);
   if (link) {
-    return { number: normalizePhoneBR(link[1]), verified: true };
+    return {
+      number: normalizePhoneBR(link[1]),
+      verified: true,
+      evidence: `Link WhatsApp: ${link[0].slice(0, 80)}`,
+    };
   }
 
   const labeled = text.match(WA_LABEL_RE);
   if (labeled) {
-    return { number: normalizePhoneBR(labeled[1]), verified: true };
+    return {
+      number: normalizePhoneBR(labeled[1]),
+      verified: true,
+      evidence: `Número rotulado como WhatsApp: "${snippet(text, labeled.index ?? 0, labeled[0].length)}"`,
+    };
   }
 
   // menção clara a WhatsApp mas sem número extraível → ainda conta como
   // canal existente (o vendedor localiza o número), mas sem o número.
-  if (HAS_WA_MENTION_RE.test(text)) {
-    return { number: null, verified: true };
+  const mention = text.match(HAS_WA_MENTION_RE);
+  if (mention) {
+    return {
+      number: null,
+      verified: true,
+      evidence: `Menção a WhatsApp: "${snippet(text, mention.index ?? 0, mention[0].length)}"`,
+    };
   }
 
-  return { number: null, verified: false };
+  return { number: null, verified: false, evidence: null };
 }

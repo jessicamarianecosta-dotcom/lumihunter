@@ -7,9 +7,12 @@
  * (`campaigns.current_discovery_run_id`). A tela e os contadores olham só a
  * rodada atual — nada de acumular.
  *
+ * Um resultado só vira LEAD (status "qualified" → aparece na lista principal)
+ * se passou em TODOS os gates (`prospectable`). Todo o resto entra como
+ * "rejected" e fica apenas na aba "Descartados" (auditoria).
+ *
  * Exceção: uma descoberta que já virou lead aprovado carrega o `status` e o
- * `lead_id` para a nova rodada (o lead e o campaign_target continuam intactos
- * no CRM independentemente da rodada).
+ * `lead_id` para a nova rodada.
  */
 import type { DiscoveredCompany } from "./types";
 
@@ -19,36 +22,40 @@ export interface PriorApproval {
   approved_by: string | null;
 }
 
-export type DiscoveryStatus = "approved" | "rejected" | "qualified" | "discovered";
+export type DiscoveryStatus = "approved" | "rejected" | "qualified";
 
 /** Status da descoberta nesta rodada, honrando aprovações de rodadas anteriores. */
 export function resolveRowStatus(
-  c: Pick<DiscoveredCompany, "competitor" | "qualification">,
+  c: Pick<DiscoveredCompany, "prospectable">,
   prior: PriorApproval | undefined,
 ): DiscoveryStatus {
   if (prior) return "approved";
-  if (c.competitor) return "rejected";
-  if (c.qualification === "high" || c.qualification === "medium") return "qualified";
-  return "discovered";
+  return c.prospectable ? "qualified" : "rejected";
 }
 
 export interface RunStats {
+  /** LEADS válidos da rodada (passaram em todos os gates). */
   found: number;
-  prospectable: number;
-  qualified: number;
+  /** Candidatos que chegaram à qualificação (após hard filter). */
+  screened: number;
+  /** Reprovados na qualificação. */
+  rejected: number;
   competitors: number;
   noWhatsapp: number;
 }
 
-/** Contadores da RODADA (só as descobertas desta rodada). */
-export function runStats(candidates: DiscoveredCompany[]): RunStats {
+/** Contadores da RODADA. `qualified` = LEADS válidos; o resto é descarte. */
+export function runStats(
+  qualified: DiscoveredCompany[],
+  rejected: DiscoveredCompany[],
+): RunStats {
   return {
-    found: candidates.length,
-    prospectable: candidates.filter((c) => !c.competitor && c.whatsappVerified).length,
-    qualified: candidates.filter(
-      (c) => !c.competitor && (c.qualification === "high" || c.qualification === "medium"),
+    found: qualified.length,
+    screened: qualified.length + rejected.length,
+    rejected: rejected.length,
+    competitors: rejected.filter((c) => c.competitor).length,
+    noWhatsapp: rejected.filter(
+      (c) => !c.competitor && c.resultType === "business" && !c.whatsappVerified,
     ).length,
-    competitors: candidates.filter((c) => c.competitor).length,
-    noWhatsapp: candidates.filter((c) => !c.competitor && !c.whatsappVerified).length,
   };
 }

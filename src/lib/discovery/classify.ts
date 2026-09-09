@@ -43,6 +43,59 @@ const ARTICLE = [
   "significado de", "vale a pena", "resenha", "review", "blog", "notícia",
   "noticia", "por que ", "confira ", "veja como",
 ];
+
+// ── Página que fala de VÁRIAS empresas / editorial / ranking ─────────────
+// "8 espaços deliciosos…", "Os 20 dentistas…", "As 12 melhores padarias…",
+// "Melhores cafés de Curitiba", "Cafés e docerias … em Curitiba",
+// "Salões de Beleza em Curitiba", "Padarias em Curitiba", "Roteiro de…"
+const AGGREGATOR_RE = new RegExp(
+  [
+    "^(os?|as?)\\s+\\d+\\b",                       // "Os 20 …", "As 12 …"
+    "^\\d+\\s+\\S+",                                // "8 espaços …", "12 padarias …"
+    "\\b(top\\s*\\d|\\d+\\s+(melhores|piores|op[çc][õo]es|lugares|espa[çc]os|dicas))\\b",
+    "\\bmelhores?\\b.*\\b(de|em|para|no|na)\\b",    // "melhores cafés de …"
+    "\\b(ranking|roteiro|sele[çc][ãa]o de|lista de|guia de|guia gastron)",
+    "\\bonde (comer|tomar|ir|comprar|encontrar|fazer)\\b",
+    "\\b(conhe[çc]a|confira|veja|descubra|indica[çc][õo]es de)\\b.*\\b(os|as|\\d)",
+    "\\b\\d+\\s+lugares\\b",
+  ].join("|"),
+  "i",
+);
+
+/** Palavras de segmento no PLURAL — se o título é basicamente isto + região,
+ * é uma página de "as X de <cidade>", não uma empresa. */
+const PLURAL_SEGMENTS = [
+  "cafés", "cafes", "cafeterias", "docerias", "padarias", "confeitarias",
+  "restaurantes", "lanchonetes", "pizzarias", "hamburguerias", "bares",
+  "barbearias", "sal[õo]es", "salões", "saloes", "clínicas", "clinicas",
+  "dentistas", "médicos", "medicos", "advogados", "escritórios", "escritorios",
+  "lojas", "boutiques", "ateliês", "atelies", "saboarias", "floriculturas",
+  "pet shops", "petshops", "academias", "studios", "estúdios", "estudios",
+  "empresas", "comércios", "comercios", "negócios", "negocios", "marcas",
+  "fábricas", "fabricas", "fabricantes", "fornecedores", "gráficas", "graficas",
+];
+const PLURAL_HEAD_RE = new RegExp(
+  `^\\s*(as?\\s+|os?\\s+|melhores\\s+|\\d+\\s+)?(${PLURAL_SEGMENTS.join("|")})\\b` +
+    `[^|·–—-]*\\b(em|de|no|na|para|perto|pr[óo]xim)`,
+  "i",
+);
+
+// ── Notícia / matéria de mercado ────────────────────────────────────────
+const NEWS = [
+  "vive boom", "em alta", "cresce", "aponta pesquisa", "aponta estudo",
+  "segundo pesquisa", "de acordo com", "balanço do", "movimenta r$",
+  "faturamento do setor", "mercado de", "setor de", "tendência", "tendencia",
+  "reportagem", "matéria", "materia", "coluna", "editorial",
+  "vagas e taxas", "convenção coletiva", "convencao coletiva", "concurso",
+  "edital", "cargos e salários", "cargos e salarios", "dissídio", "dissidio",
+];
+const NEWS_HOSTS = [
+  "bemparana.com.br", "plural.jor.br", "banda b", "tribunapr.com.br",
+  "bandab.com.br", "aredacao.com.br", "curitibacult", "diarioinduscom",
+  "revista", "jornal", "portalcuritiba",
+];
+
+// (mantido para compat) — listicle simples
 const LISTICLE_RE =
   /^(top\s*)?\d+\s+(melhores|piores|dicas|passos|motivos|ideias|maneiras|formas|marcas|empresas|lojas|padarias|confeitarias|restaurantes|opções|opcoes)/i;
 
@@ -92,7 +145,14 @@ export function classifyResult(hit: {
   // ── HARD: categorias que nunca são lead ────────────────────────────────
   if (host.endsWith(".gov.br") || host.endsWith(".jus.br") || has(text, GOVERNMENT))
     return notBusiness("government", "Órgão público / programa governamental");
-  if (LISTICLE_RE.test(title) || has(text, DIRECTORY) || hostIn(host, DIRECTORY_HOSTS))
+  // agregador / ranking / "as X de <cidade>" / roteiro — página de VÁRIAS empresas
+  if (
+    AGGREGATOR_RE.test(title) ||
+    LISTICLE_RE.test(title) ||
+    PLURAL_HEAD_RE.test(title)
+  )
+    return notBusiness("aggregator", "Página que lista várias empresas (ranking/roteiro)");
+  if (has(text, DIRECTORY) || hostIn(host, DIRECTORY_HOSTS))
     return notBusiness("directory", "Lista / diretório de empresas");
   if (has(text, EVENT))
     return notBusiness("event", "Evento / feira");
@@ -100,6 +160,8 @@ export function classifyResult(hit: {
     return notBusiness("association", "Associação / sindicato / instituto");
   if (has(text, COMMUNITY))
     return notBusiness("community", "Comunidade / portal de empreendedorismo");
+  if (has(text, NEWS) || hostIn(host, NEWS_HOSTS))
+    return notBusiness("news", "Notícia / matéria de mercado");
   if (hostIn(host, CONTENT_HOSTS) || has(title, ARTICLE))
     return notBusiness("article", "Conteúdo editorial / notícia / blog");
   if (hostIn(host, MARKETPLACE_HOSTS))

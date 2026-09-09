@@ -210,7 +210,8 @@ export async function POST(
   );
 
   // ── Persistência ──────────────────────────────────────────────────────
-  const rows = result.candidates.map((c) => {
+  const allCandidates = [...result.qualified, ...result.rejected];
+  const rows = allCandidates.map((c) => {
     const prior = approvedByKey.get(c.dedupeKey);
     const status = resolveRowStatus(c, prior ?? undefined);
     return {
@@ -241,13 +242,17 @@ export async function POST(
       result_type: c.resultType,
       business_type: c.businessType,
       source_quality: c.sourceQuality,
+      individual_business: c.individualBusiness,
       competitor: c.competitor,
       whatsapp_verified: c.whatsappVerified,
+      whatsapp_evidence: c.whatsappEvidence,
       channel_requirement: channelRequirement,
       score: c.score,
       buyer_fit_score: c.buyerFitScore,
       product_fit_score: c.productFitScore,
       business_fit_score: c.businessFitScore,
+      product_match_name: c.productMatch?.name ?? null,
+      product_match_reason: c.productMatch?.reason ?? null,
       qualification: c.qualification,
       qualification_reason: c.qualificationReason,
       qualification_signals: c.qualificationSignals as unknown as Json,
@@ -276,12 +281,16 @@ export async function POST(
     inserted = data?.length ?? 0;
   }
 
+  const base = runStats(result.qualified, result.rejected);
+  const hardFiltered = Object.values(result.discardReasons).reduce((a, b) => a + b, 0)
+    - result.rejected.length;
   const stats = {
-    ...runStats(result.candidates),
+    ...base,
     // "qualificados" da rodada = os efetivamente gravados como 'qualified'
     // (não conta os que carregaram 'approved' de rodadas anteriores)
     qualified: rows.filter((r) => r.status === "qualified").length,
-    discarded: result.discardedCount,
+    prospectable: base.found,
+    discarded: result.rejected.length + Math.max(0, hardFiltered),
     rawResults: result.rawCount,
     queries: result.queries.length,
     aiUsed: result.aiUsed,

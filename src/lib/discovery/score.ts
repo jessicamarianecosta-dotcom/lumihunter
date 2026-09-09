@@ -1,16 +1,16 @@
 /**
  * Qualificação de uma empresa candidata. Funções puras.
  *
- * Pergunta central: "esta empresa provavelmente COMPRA este produto de um
- * fornecedor como a LumiLife?" — não "trabalha com" nem "usa".
- *
- * Fatores: buyer_fit (35%) + product_fit (30%) + whatsapp (20%) + região (10%)
- * + fonte (5%). Concorrente/fornecedor → nunca qualifica. Campanha de WhatsApp
- * sem WhatsApp confirmado → nunca qualifica e score ≤ 49.
+ * REGRA: resultado de busca NÃO é lead. Só vira LEAD (aparece na lista
+ * principal) o candidato que passa em TODOS os gates:
+ *   empresa individual · não concorrente · região confirmada · buyer_fit ≥ 70
+ *   · produto CONCRETO do catálogo compatível (product_fit ≥ 60) · WhatsApp
+ *   comercial confirmado. Score é consequência dos gates, nunca o contrário.
  */
 import { GENERIC_AUDIENCE } from "./queries";
 import type {
   BusinessType,
+  CatalogProductRef,
   DiscoveredCompany,
   ProductContext,
   Qualification,
@@ -33,6 +33,7 @@ export interface ScoreInput {
   resultType: ResultType;
   businessType: BusinessType;
   sourceQuality: number;
+  individualBusiness: boolean;
   competitor: boolean;
   whatsappVerified: boolean;
   channelRequirement: "whatsapp" | "email" | "none";
@@ -45,7 +46,9 @@ export interface QualificationResult {
   buyerFitScore: number;
   productFitScore: number;
   businessFitScore: number;
+  productMatch: { name: string; reason: string } | null;
   qualification: Qualification;
+  prospectable: boolean;
   reason: string;
   signals: QualificationSignal[];
   evidence: string[];
@@ -69,7 +72,6 @@ const BUSINESS_TYPE_PT: Record<BusinessType, string> = {
   unknown: "negócio",
 };
 
-/** Tipos de negócio que vendem bens físicos (usam embalagem/identificação). */
 const PHYSICAL_GOODS: Set<BusinessType> = new Set([
   "confectionery", "bakery", "soap_brand", "candle_brand", "cosmetics_brand",
   "artisan_business", "manufacturer", "brand", "store",
@@ -93,24 +95,124 @@ function countOverlap(haystack: string, needles: string[]): number {
 const OWN_PRODUCTS_RE =
   /produtos?\s+(pr[óo]prios?|artesanais?|embalad|autorais?)|linha\s+(pr[óo]pria|de\s+produtos)|nossa\s+marca|encomendas|loja\s+(virtual|online|f[íi]sica)|vendas?\s+online|fabricamos|produzimos|feito\s+(à|a)\s+m[ãa]o/i;
 
-/** Banda de qualificação. Requisitos críticos podem forçar "low". */
-export function qualificationBand(args: {
-  final: number;
+// Termos genéricos que NÃO contam como "produto concreto do catálogo".
+const BROAD_PRODUCT_TERMS = new Set([
+  "comunicacao", "visual", "grafica", "grafico", "rapida", "personalizado",
+  "personalizada", "personalizados", "personalizadas", "personalizar",
+  "impresso", "impressao", "material", "materiais", "servico", "servicos",
+  "produto", "produtos", "custom", "generico",
+]);
+
+/**
+ * Encontra UM produto CONCRETO do catálogo que faz sentido para esta empresa.
+ * Retorna null se nada casar de verdade (→ product_fit = 0 → descartar).
+ */
+export function pickProductMatch(
+  haystack: string,
+  catalog: CatalogProductRef[],
+): { name: string; reason: string; strength: number } | null {
+  const h = norm(haystack);
+  let best: { name: string; reason: string; strength: number } | null = null;
+
+  for (const p of catalog) {
+    const kw = terms([p.name, ...p.keywords]).filter(
+      (t) => !BROAD_PRODUCT_TERMS.has(t),
+    );
+    const apps = terms(p.applications).filter((t) => !BROAD_PRODUCT_TERMS.has(t));
+    const kwHits = kw.filter((t) => h.includes(t));
+    const appHits = apps.filter((t) => h.includes(t));
+
+    // precisa haver relação real: a atividade da empresa aparece nas
+    // aplicações/keywords do produto (não só o nome amplo do produto)
+    if (kwHits.length === 0 && appHits.length === 0) continue;
+
+    const strength =
+      (appHits.length >= 1 ? 70 : 0) +
+      (kwHits.length >= 2 ? 25 : kwHits.length === 1 ? 15 : 0);
+    if (strength < 15) continue;
+
+    if (!best || strength > best.strength) {
+      const why =
+        appHits.length >= 1
+          ? `aplicação "${apps[appHits.length ? apps.indexOf(appHits[0]) : 0] ?? appHits[0]}" compatível com o negócio`
+          : `atividade relacionada a ${kwHits.slice(0, 2).join(", ")}`;
+      best = { name: p.name, reason: `${p.name}: ${why}.`, strength: Math.min(100, strength) };
+    }
+  }
+  return best;
+}
+
+/** Sinais SEMPRE derivados dos números finais — nunca contraditórios. Pura. */
+export function deriveSignals(args: {
+  individualBusiness: boolean;
+  competitor: boolean;
+  resultType: ResultType;
   buyerFit: number;
   productFit: number;
-  resultType: ResultType;
-  competitor: boolean;
+  productMatch: { name: string } | null;
+  regionMatch: boolean;
+  city: string | null;
   whatsappVerified: boolean;
   channelRequirement: "whatsapp" | "email" | "none";
-}): Qualification {
-  const { final, buyerFit, productFit } = args;
-  if (args.competitor) return "low";
-  if (args.resultType !== "business") return "low";
-  if (args.channelRequirement === "whatsapp" && !args.whatsappVerified) return "low";
-  if (buyerFit < 40) return "low";
-  if (final >= 70 && buyerFit >= 50 && productFit >= 40) return "high";
-  if (final >= 55) return "medium";
-  return "low";
+}): QualificationSignal[] {
+  const s: QualificationSignal[] = [];
+  if (args.competitor || args.resultType !== "business" || !args.individualBusiness)
+    return s;
+  if (args.individualBusiness) s.push({ label: "Empresa individual identificada" });
+  if (args.buyerFit >= 70) s.push({ label: "Comprador potencial confirmado" });
+  else if (args.buyerFit >= 50) s.push({ label: "Provável comprador (a confirmar)" });
+  if (args.productMatch && args.productFit >= 60)
+    s.push({ label: "Produto do catálogo compatível", detail: args.productMatch.name });
+  if (args.regionMatch)
+    s.push({ label: "Região compatível", detail: args.city ?? undefined });
+  if (args.whatsappVerified) s.push({ label: "WhatsApp comercial confirmado" });
+  else if (args.channelRequirement === "whatsapp")
+    s.push({ label: "Sem WhatsApp confirmado" });
+  return s;
+}
+
+const GATE_HIGH_BUYER = 70;
+const GATE_HIGH_PRODUCT = 60;
+
+/** Banda + `prospectable`. Requisitos críticos forçam "low"/false. */
+export function evaluateGates(args: {
+  score: number;
+  buyerFit: number;
+  productFit: number;
+  productMatch: unknown;
+  individualBusiness: boolean;
+  resultType: ResultType;
+  competitor: boolean;
+  regionMatch: boolean;
+  hasCity: boolean;
+  whatsappVerified: boolean;
+  channelRequirement: "whatsapp" | "email" | "none";
+}): { qualification: Qualification; prospectable: boolean; discardReason: string | null } {
+  const fail = (r: string) =>
+    ({ qualification: "low" as const, prospectable: false, discardReason: r });
+
+  if (args.resultType !== "business")
+    return fail(`Resultado é "${args.resultType}", não uma empresa`);
+  if (!args.individualBusiness)
+    return fail("Não é uma empresa individual (página de várias empresas)");
+  if (args.competitor)
+    return fail("Concorrente/fornecedor do mesmo produto");
+  if (!args.regionMatch)
+    return fail(args.hasCity ? "Fora da região da campanha" : "Região não confirmada");
+  if (args.buyerFit < GATE_HIGH_BUYER)
+    return fail("Sem evidência forte de que é comprador do produto");
+  if (!args.productMatch || args.productFit < GATE_HIGH_PRODUCT)
+    return fail("Sem produto concreto do catálogo compatível");
+  if (args.channelRequirement === "whatsapp" && !args.whatsappVerified)
+    return fail("WhatsApp comercial não confirmado");
+
+  // passou em todos os gates
+  const qualification: Qualification = args.score >= 65 ? "high" : "medium";
+  return {
+    qualification,
+    prospectable: qualification === "high",
+    discardReason: qualification === "high" ? null : "Potencial médio — abaixo do corte de alto potencial",
+  };
 }
 
 export function qualify(
@@ -125,7 +227,8 @@ export function qualify(
     c.discoveryQuery ?? "",
   ].join(" ");
 
-  const isBusiness = c.resultType === "business" && !c.competitor;
+  const isBusiness =
+    c.resultType === "business" && !c.competitor && c.individualBusiness;
 
   const buyerTerms = terms([
     ...ctx.exampleBuyers,
@@ -133,28 +236,25 @@ export function qualify(
     ...c.buyerSegments,
     ...(ctx.idealAudience ? [ctx.idealAudience] : []),
   ]);
-  const appTerms = terms([...ctx.applications, ...ctx.keywords]);
   const buyerHits = countOverlap(haystack, buyerTerms);
-  const appHits = countOverlap(haystack, appTerms);
   const ownProducts = !!c.description && OWN_PRODUCTS_RE.test(c.description);
 
-  // ── buyer fit: é um COMPRADOR do produto? ─────────────────────────────
+  // ── produto CONCRETO do catálogo ─────────────────────────────────────
+  const match = isBusiness ? pickProductMatch(haystack, ctx.catalogProducts) : null;
+  const productMatch = match ? { name: match.name, reason: match.reason } : null;
+
+  // ── buyer fit ────────────────────────────────────────────────────────
   let buyerFit = 0;
   if (isBusiness) {
-    buyerFit = buyerHits >= 2 ? 75 : buyerHits === 1 ? 55 : 25;
-    if (PHYSICAL_GOODS.has(c.businessType)) buyerFit += 15;
+    buyerFit = buyerHits >= 2 ? 75 : buyerHits === 1 ? 58 : 25;
+    if (PHYSICAL_GOODS.has(c.businessType)) buyerFit += 12;
     if (ownProducts) buyerFit += 10;
+    if (match) buyerFit += 8;
     buyerFit = Math.min(100, buyerFit);
   }
 
-  // ── product fit: o produto tem aplicação real no negócio? ─────────────
-  let productFit = 0;
-  if (isBusiness) {
-    productFit = appHits >= 2 ? 70 : appHits === 1 ? 50 : buyerHits >= 1 ? 40 : 20;
-    if (PHYSICAL_GOODS.has(c.businessType)) productFit += 15;
-    if (ownProducts) productFit += 10;
-    productFit = Math.min(100, productFit);
-  }
+  // ── product fit = força do product match (0 se não houver) ────────────
+  const productFit = isBusiness && match ? match.strength : 0;
 
   // ── business fit ─────────────────────────────────────────────────────
   const specificType =
@@ -175,93 +275,74 @@ export function qualify(
       (main.length > 2 && norm(haystack).includes(main))
     );
   });
-  const location = regionMatch ? 100 : c.city ? 20 : 35;
+  const location = regionMatch ? 100 : c.city ? 15 : 30;
   const whatsapp = c.whatsappVerified ? 100 : 0;
-  const sourceQuality = c.sourceQuality;
 
   let score = Math.round(
     0.35 * buyerFit +
       0.3 * productFit +
       0.2 * whatsapp +
       0.1 * location +
-      0.05 * sourceQuality,
+      0.05 * c.sourceQuality,
   );
-  // campanha de WhatsApp sem WhatsApp confirmado → nunca prioridade
-  if (c.channelRequirement === "whatsapp" && !c.whatsappVerified) {
+  if (c.channelRequirement === "whatsapp" && !c.whatsappVerified)
     score = Math.min(score, 49);
-  }
 
-  const qualification = qualificationBand({
-    final: score,
+  const gate = evaluateGates({
+    score,
     buyerFit,
     productFit,
+    productMatch,
+    individualBusiness: c.individualBusiness,
     resultType: c.resultType,
     competitor: c.competitor,
+    regionMatch,
+    hasCity: !!c.city,
     whatsappVerified: c.whatsappVerified,
     channelRequirement: c.channelRequirement,
   });
 
-  // ── por que NÃO virou lead prospectável ─────────────────────────────
-  let discardReason: string | null = null;
-  if (c.competitor) discardReason = "Possível concorrente/fornecedor do mesmo produto";
-  else if (c.resultType !== "business") discardReason = `Resultado é "${c.resultType}", não uma empresa`;
-  else if (!regionMatch && c.city) discardReason = "Fora da região da campanha";
-  else if (buyerFit < 40) discardReason = "Sem evidência de que é comprador do produto";
-  else if (c.channelRequirement === "whatsapp" && !c.whatsappVerified)
-    discardReason = "WhatsApp comercial não confirmado";
+  const signals = deriveSignals({
+    individualBusiness: c.individualBusiness,
+    competitor: c.competitor,
+    resultType: c.resultType,
+    buyerFit,
+    productFit,
+    productMatch,
+    regionMatch,
+    city: c.city,
+    whatsappVerified: c.whatsappVerified,
+    channelRequirement: c.channelRequirement,
+  });
 
   // ── evidências ─────────────────────────────────────────────────────
   const evidence: string[] = [];
-  if (specificType) evidence.push(`Empresa comercial real: ${BUSINESS_TYPE_PT[c.businessType]}`);
+  if (isBusiness && specificType)
+    evidence.push(`Empresa comercial real: ${BUSINESS_TYPE_PT[c.businessType]}`);
   if (buyerHits >= 1) evidence.push("Segmento é comprador do tipo de produto da campanha");
-  if (ownProducts)
-    evidence.push(`Vende produtos próprios: "${c.description!.slice(0, 130)}"`);
-  if (appHits >= 1) evidence.push("Aplicação do produto plausível no negócio");
+  if (ownProducts && c.description)
+    evidence.push(`Vende produtos próprios: "${c.description.slice(0, 130)}"`);
+  if (productMatch) evidence.push(productMatch.reason);
   if (regionMatch) evidence.push(`Na região: ${c.city ?? "—"}${c.state ? "/" + c.state : ""}`);
   if (c.whatsappVerified) evidence.push("WhatsApp comercial encontrado");
   if (c.website) evidence.push(`Site: ${c.website}`);
   if (c.instagram) evidence.push(`Instagram: ${c.instagram}`);
 
-  // ── sinais (comprador primeiro; contato/site por último) ────────────
-  const signals: QualificationSignal[] = [];
-  if (isBusiness && buyerFit >= 55)
-    signals.push({ label: "Empresa compradora identificada" });
-  if (productFit >= 50)
-    signals.push({ label: `Produto compatível (${ctx.name.toLowerCase()})` });
-  if (buyerHits >= 1)
-    signals.push({
-      label: "Segmento compatível",
-      detail: buyerTerms.filter((t) => norm(haystack).includes(t)).slice(0, 3).join(", "),
-    });
-  if (ownProducts) signals.push({ label: "Produtos/linha própria identificados" });
-  if (regionMatch) signals.push({ label: "Região compatível", detail: c.city ?? undefined });
-  if (c.whatsappVerified) signals.push({ label: "WhatsApp comercial confirmado" });
-  else if (c.channelRequirement === "whatsapp")
-    signals.push({ label: "Sem WhatsApp confirmado" });
-
   // ── motivo ─────────────────────────────────────────────────────────
   const bt = BUSINESS_TYPE_PT[c.businessType];
-  const prod = ctx.name.toLowerCase();
   let reason: string;
-  if (c.competitor) {
-    reason = `${c.companyName} parece oferecer ${prod} como serviço — concorrente/fornecedor, não comprador.`;
-  } else if (c.resultType !== "business") {
-    reason = `Resultado classificado como "${c.resultType}" — não é uma empresa compradora.`;
+  if (!isBusiness) {
+    reason =
+      gate.discardReason ??
+      `Resultado não é uma empresa compradora individual.`;
+  } else if (gate.prospectable) {
+    reason = `${c.companyName}${c.city ? `, em ${c.city}` : ""} — ${bt}. Comprador potencial de ${
+      productMatch?.name.toLowerCase() ?? "materiais do catálogo"
+    }; WhatsApp comercial confirmado.`;
   } else {
-    const fit =
-      buyerFit >= 55
-        ? `o segmento compra ${prod} de fornecedores`
-        : buyerFit >= 40
-          ? `há relação plausível com ${prod} (a confirmar)`
-          : `ainda sem evidência de que compra ${prod}`;
-    const wa = c.whatsappVerified
-      ? "WhatsApp comercial confirmado"
-      : c.channelRequirement === "whatsapp"
-        ? "sem WhatsApp confirmado (canal da campanha é WhatsApp)"
-        : "";
     reason = `${c.companyName}${c.city ? `, em ${c.city}` : ""} — ${bt}. ${
-      fit.charAt(0).toUpperCase() + fit.slice(1)
-    }${wa ? `; ${wa}` : ""}.`;
+      gate.discardReason ?? "Não passou em todos os requisitos"
+    }.`;
   }
 
   return {
@@ -269,19 +350,21 @@ export function qualify(
     buyerFitScore: buyerFit,
     productFitScore: productFit,
     businessFitScore: businessFit,
-    qualification,
+    productMatch,
+    qualification: gate.qualification,
+    prospectable: gate.prospectable,
     reason,
     signals,
     evidence,
-    discardReason,
+    discardReason: gate.discardReason,
   };
 }
 
-/** Abordagem sugerida — SEMPRE presa ao produto real da campanha. */
+/** Abordagem sugerida — presa a um produto CONCRETO do catálogo. */
 export function heuristicApproach(
-  c: Pick<DiscoveredCompany, "companyName" | "businessType">,
+  c: Pick<DiscoveredCompany, "companyName" | "productMatch">,
   ctx: ProductContext,
 ): string {
-  const app = ctx.applications[0]?.toLowerCase() ?? "os produtos e embalagens do negócio";
-  return `Apresentar ${ctx.name.toLowerCase()} como opção para ${app} da ${c.companyName}. Falar somente do produto da campanha — nada fora do catálogo.`;
+  const prod = c.productMatch?.name ?? ctx.name;
+  return `Apresentar ${prod.toLowerCase()} para a ${c.companyName}. Falar somente de produtos do catálogo — nada fora dele.`;
 }

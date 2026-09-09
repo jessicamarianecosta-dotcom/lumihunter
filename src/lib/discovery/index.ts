@@ -112,12 +112,16 @@ function toCandidate(
     resultType: "business",
     businessType: cls.businessType,
     sourceQuality: cls.sourceQuality,
+    individualBusiness: true,
     competitor: comp.competitor,
     whatsappVerified: wa.verified,
+    whatsappEvidence: wa.evidence,
     score: 0,
     buyerFitScore: 0,
     productFitScore: 0,
     businessFitScore: 0,
+    productMatch: null,
+    prospectable: false,
     qualification: "low",
     qualificationReason: comp.competitor ? comp.reason ?? "" : "",
     qualificationSignals: [],
@@ -145,6 +149,7 @@ async function enrichCandidate(
     const wa = findVerifiedWhatsApp(text);
     if (wa.verified && !c.whatsappVerified) {
       c.whatsappVerified = true;
+      c.whatsappEvidence = wa.evidence;
       if (wa.number) c.whatsapp = wa.number;
     }
     const cl = classifyResult(h);
@@ -177,13 +182,25 @@ export async function runDiscovery(args: RunArgs): Promise<DiscoveryRunResult> {
 
   // ── Classificação + normalização (hard filter: só "business") ──────────
   const discardReasons: Record<string, number> = {};
-  let discarded = 0;
+  const HARD_FILTER_LABEL: Record<string, string> = {
+    aggregator: "Página que lista várias empresas (ranking/roteiro)",
+    news: "Notícia / matéria de mercado",
+    article: "Conteúdo editorial (guia/artigo)",
+    directory: "Diretório / catálogo online",
+    event: "Evento / feira",
+    association: "Associação / sindicato",
+    government: "Órgão público",
+    community: "Fórum / rede social genérica",
+    content: "Conteúdo editorial",
+    unknown: "Tipo de página não identificado",
+    no_company: "Título não é o nome de uma empresa específica",
+  };
   const normalized: DiscoveredCompany[] = [];
   for (const hit of rawHits) {
     const r = toCandidate(hit, brief);
     if ("discard" in r) {
-      discarded++;
-      discardReasons[r.discard] = (discardReasons[r.discard] ?? 0) + 1;
+      const label = HARD_FILTER_LABEL[r.discard] ?? r.discard;
+      discardReasons[label] = (discardReasons[label] ?? 0) + 1;
       continue;
     }
     normalized.push(r);
@@ -228,6 +245,7 @@ export async function runDiscovery(args: RunArgs): Promise<DiscoveryRunResult> {
         resultType: c.resultType,
         businessType: c.businessType,
         sourceQuality: c.sourceQuality,
+        individualBusiness: c.individualBusiness,
         competitor: c.competitor,
         whatsappVerified: c.whatsappVerified,
         channelRequirement: brief.channelRequirement,
@@ -240,7 +258,9 @@ export async function runDiscovery(args: RunArgs): Promise<DiscoveryRunResult> {
     c.buyerFitScore = q.buyerFitScore;
     c.productFitScore = q.productFitScore;
     c.businessFitScore = q.businessFitScore;
+    c.productMatch = q.productMatch;
     c.qualification = q.qualification;
+    c.prospectable = q.prospectable;
     c.qualificationReason = q.reason;
     c.qualificationSignals = q.signals;
     c.evidence = q.evidence;
@@ -258,19 +278,29 @@ export async function runDiscovery(args: RunArgs): Promise<DiscoveryRunResult> {
   try {
     const r = await refineWithAI(brief, candidates, args.userId ?? null);
     aiUsed = r.used;
-    if (aiUsed)
-      candidates.sort(
-        (a, b) => b.score - a.score || b.buyerFitScore - a.buyerFitScore,
-      );
   } catch {
     aiUsed = false;
   }
 
+  // ── Split: LEAD válido (todos os gates) × descartado ─────────────────
+  const qualified = candidates
+    .filter((c) => c.prospectable)
+    .sort((a, b) => b.score - a.score || b.buyerFitScore - a.buyerFitScore);
+  const rejected = candidates
+    .filter((c) => !c.prospectable)
+    .sort((a, b) => b.score - a.score);
+
+  for (const c of rejected) {
+    const key = c.discardReason ?? "Não passou em todos os requisitos";
+    discardReasons[key] = (discardReasons[key] ?? 0) + 1;
+  }
+
   return {
     rawCount: rawHits.length,
-    discardedCount: discarded,
+    screenedCount: candidates.length,
+    qualified,
+    rejected,
     discardReasons,
-    candidates,
     queries,
     aiUsed,
   };

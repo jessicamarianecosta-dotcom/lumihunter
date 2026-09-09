@@ -57,16 +57,14 @@ export function DiscoveryPanel({ campaignId, regions, ready, configured, hasRun 
         );
       } else if (data.found === 0) {
         setResult(
-          `Nova pesquisa concluída: ${data.queries} consultas, ${data.rawResults} resultados, mas nenhuma empresa compradora. Ajuste o produto/público ou a região.`,
+          `Nova pesquisa concluída: ${data.screened ?? 0} páginas analisadas, mas nenhum lead passou em todos os critérios (empresa individual compradora + produto do catálogo + WhatsApp + região). Ajuste o produto/público ou a região.`,
         );
         router.refresh();
       } else {
         setResult(
-          `Nova pesquisa concluída: ${data.found} ${
-            data.found === 1 ? "empresa" : "empresas"
-          } · ${data.prospectable ?? 0} com WhatsApp · ${data.qualified} qualificadas${
-            data.competitors ? ` · ${data.competitors} concorrentes descartados` : ""
-          }${data.noWhatsapp ? ` · ${data.noWhatsapp} sem WhatsApp` : ""}.`,
+          `Nova pesquisa concluída: 🔥 ${data.found} ${
+            data.found === 1 ? "lead de alto potencial" : "leads de alto potencial"
+          } · ${data.screened ?? 0} analisados · ${data.discarded ?? 0} descartados (auditoria).`,
         );
         router.refresh();
       }

@@ -99,6 +99,57 @@ function findEmail(text: string): string | null {
   return m ? m[0].toLowerCase() : null;
 }
 
+// ── O texto extraído parece o NOME de UMA empresa? ───────────────────────
+const NAME_STOPWORDS = new Set([
+  "os", "as", "o", "a", "e", "de", "da", "do", "em", "no", "na", "para", "com",
+  "melhores", "melhor", "top", "lista", "guia", "ranking", "roteiro", "onde",
+  "conheça", "conheca", "confira", "veja", "descubra", "curitiba", "paraná",
+  "parana", "brasil", "região", "regiao", "metropolitana", "endereços",
+  "enderecos", "endereço", "endereco", "telefone", "telefones", "contato",
+  "contatos", "cidade", "espaços", "espacos", "lugares", "opções", "opcoes",
+  "deliciosos", "deliciosas", "recomendados", "recomendadas", "próximos",
+  "proximos", "perto", "aqui", "vagas", "taxas", "empresas", "negócios",
+  "negocios", "comércios", "comercios",
+]);
+
+// segmentos genéricos no plural que, sozinhos, não são nome de empresa
+const PLURAL_SEGMENT_WORDS = new Set([
+  "cafés", "cafes", "cafeterias", "docerias", "padarias", "confeitarias",
+  "restaurantes", "lanchonetes", "pizzarias", "hamburguerias", "bares",
+  "barbearias", "salões", "saloes", "clínicas", "clinicas", "dentistas",
+  "médicos", "medicos", "advogados", "lojas", "boutiques", "ateliês", "atelies",
+  "saboarias", "floriculturas", "petshops", "academias", "estúdios", "estudios",
+  "marcas", "fábricas", "fabricas", "fabricantes", "gráficas", "graficas",
+]);
+
+/** Puro. `false` → o resultado NÃO representa uma empresa individual. */
+export function looksLikeCompanyName(raw: string): boolean {
+  const name = raw.trim();
+  if (name.length < 3 || name.length > 90) return false;
+  if (/^\d/.test(name)) return false; // "8 espaços…", "12 padarias…"
+  if (/^(os?|as?|melhores?|top)\s+\d/i.test(name)) return false; // "Os 20 dentistas…"
+
+  const words = name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^\wà-ú\s]/gi, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+  if (words.length === 0) return false;
+
+  const norm = (w: string) => w.normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const meaningful = words.filter(
+    (w) => !NAME_STOPWORDS.has(w) && !NAME_STOPWORDS.has(norm(w)),
+  );
+  // sobrou só stopword ("Endereços", "Curitiba", "Melhores cafés de Curitiba")
+  if (meaningful.length === 0) return false;
+  // todas as palavras que sobraram são segmento no plural ("Cafés e docerias")
+  if (meaningful.every((w) => PLURAL_SEGMENT_WORDS.has(w) || PLURAL_SEGMENT_WORDS.has(norm(w))))
+    return false;
+  return true;
+}
+
 // ── Nome da empresa a partir do título ────────────────────────────────────
 function cleanName(title: string): string {
   let n = title.split(/[|•·–—]| - /)[0].trim();
@@ -131,6 +182,8 @@ export function extractCompany(hit: RawDiscoveryHit, regions: string[]): Extract
 
   const name = cleanName(hit.title);
   if (!name || name.length < 2) return { ok: false, reason: "Sem nome identificável" };
+  if (!looksLikeCompanyName(name))
+    return { ok: false, reason: "Título não é o nome de uma empresa específica" };
 
   const { city, state } = findCity(text, regions);
   const { phone, whatsapp } = findPhones(text);

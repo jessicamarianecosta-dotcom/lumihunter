@@ -1,10 +1,17 @@
 import { describe, it, expect } from "vitest";
 import { buildDiscoveryQueries, parseAudienceSegments } from "./queries";
 import { classifyResult, detectCompetitor } from "./classify";
-import { extractCompany, hostOf } from "./extract";
+import { extractCompany, hostOf, looksLikeCompanyName } from "./extract";
 import { dedupeKeyFor, mergeByDedupeKey } from "./dedupe";
 import { findVerifiedWhatsApp } from "./whatsapp";
-import { qualify, qualificationBand, heuristicApproach, type ScoreInput } from "./score";
+import {
+  qualify,
+  evaluateGates,
+  deriveSignals,
+  pickProductMatch,
+  heuristicApproach,
+  type ScoreInput,
+} from "./score";
 import { buildCatalogGuard } from "./ai";
 import { heuristicBuyerProfile } from "./product-context";
 import { resolveRowStatus, runStats } from "./run";
@@ -20,6 +27,18 @@ const productContext: ProductContext = {
   exampleBuyers: ["confeitaria", "saboaria", "velas artesanais", "cosméticos artesanais"],
   idealAudience: "pequenos fabricantes de produtos físicos",
   variantNames: ["vinil branco", "vinil transparente", "couché"],
+  catalogProducts: [
+    {
+      name: "Rótulos adesivos para embalagem",
+      keywords: ["rótulo", "etiqueta", "adesivo"],
+      applications: ["rotulagem de embalagens", "identificação de produtos embalados"],
+    },
+    {
+      name: "Adesivos personalizados em vinil",
+      keywords: ["adesivo", "vinil", "sticker"],
+      applications: ["personalização de embalagens", "selo de lacre"],
+    },
+  ],
   source: "catalog",
 };
 
@@ -61,6 +80,7 @@ function score(over: Partial<ScoreInput>) {
     resultType: "business",
     businessType: "company",
     sourceQuality: 50,
+    individualBusiness: true,
     competitor: false,
     whatsappVerified: false,
     channelRequirement: "whatsapp",
@@ -91,21 +111,48 @@ describe("perfil de comprador guia a busca", () => {
   });
 });
 
-describe("classifyResult — hard filter", () => {
+describe("classifyResult — hard filter (antes da IA)", () => {
   it("descarta órgão público / sala do empreendedor", () => {
     expect(cls("Sala do Empreendedor de São José dos Pinhais", "https://x.pr.gov.br/y").resultType).toBe("government");
   });
-  it("descarta evento / associação / comunidade / lista / artigo", () => {
+  it("descarta evento / associação / comunidade", () => {
     expect(cls("Feiarte — feira de artesanato", "https://feiarte.com").resultType).toBe("event");
     expect(cls("Associação Comercial de Curitiba", "https://acp.com.br").resultType).toBe("association");
     expect(cls("Espaço Empreendedor", "https://x.com").resultType).toBe("community");
-    expect(cls("Top 10 Padarias de São José dos Pinhais", "https://blog.x.com").resultType).toBe("directory");
+  });
+  it("mata agregador / ranking / roteiro no primeiro filtro", () => {
+    expect(cls("8 espaços deliciosos para tomar café com bolo em Curitiba", "https://blog.x.com").resultType).toBe("aggregator");
+    expect(cls("Os 20 dentistas mais recomendados de Curitiba", "https://blog.x.com").resultType).toBe("aggregator");
+    expect(cls("Melhores cafés de Curitiba", "https://blog.x.com").resultType).toBe("aggregator");
+    expect(cls("Top 10 Padarias de São José dos Pinhais", "https://blog.x.com").resultType).toBe("aggregator");
+    expect(cls("Cafés e docerias em Curitiba", "https://blog.x.com").resultType).toBe("aggregator");
+  });
+  it("mata notícia / matéria de mercado", () => {
+    expect(cls("Mercado de cafeterias vive boom em Curitiba", "https://x.com").resultType).toBe("news");
+    expect(cls("Padeiros: vagas e taxas da convenção coletiva 2026", "https://x.com").resultType).toBe("news");
+  });
+  it("mata artigo / guia", () => {
     expect(cls("Como fazer rótulos: guia completo", "https://blog.x.com").resultType).toBe("article");
   });
   it("aceita empresa e detecta o tipo", () => {
     const c = cls("Doce Encanto Confeitaria", "https://doceencanto.com.br", "Confeitaria artesanal em Curitiba");
     expect(c.resultType).toBe("business");
     expect(c.businessType).toBe("confectionery");
+  });
+});
+
+describe("looksLikeCompanyName — título é o nome de UMA empresa?", () => {
+  it("rejeita listas / rankings / segmentos no plural", () => {
+    expect(looksLikeCompanyName("8 espaços deliciosos para tomar café com bolo em Curitiba")).toBe(false);
+    expect(looksLikeCompanyName("Os 20 dentistas mais recomendados")).toBe(false);
+    expect(looksLikeCompanyName("Melhores cafés de Curitiba")).toBe(false);
+    expect(looksLikeCompanyName("Cafés e docerias")).toBe(false);
+    expect(looksLikeCompanyName("Endereços e telefones")).toBe(false);
+  });
+  it("aceita nomes de empresa reais", () => {
+    expect(looksLikeCompanyName("Doce Encanto Confeitaria")).toBe(true);
+    expect(looksLikeCompanyName("Saboaria da Lua")).toBe(true);
+    expect(looksLikeCompanyName("Ateliê Lume")).toBe(true);
   });
 });
 
@@ -138,27 +185,117 @@ describe("detectCompetitor — concorrente ≠ comprador", () => {
 });
 
 describe("findVerifiedWhatsApp — telefone ≠ WhatsApp", () => {
-  it("confirma via link wa.me", () => {
+  it("confirma via link wa.me e traz evidência", () => {
     const r = findVerifiedWhatsApp("Fale conosco: https://wa.me/5541999998888");
     expect(r.verified).toBe(true);
     expect(r.number).toContain("99999");
+    expect(r.evidence).toContain("wa.me");
   });
   it("confirma via rótulo explícito", () => {
     const r = findVerifiedWhatsApp("WhatsApp comercial (41) 99999-8888 para encomendas");
     expect(r.verified).toBe(true);
+    expect(r.evidence).toBeTruthy();
   });
   it("NÃO confirma quando só há telefone", () => {
     const r = findVerifiedWhatsApp("Telefone: (41) 3333-4444. Endereço: Rua X, 100.");
     expect(r.verified).toBe(false);
+    expect(r.evidence).toBeNull();
   });
 });
 
-describe("qualify — buyer fit + WhatsApp obrigatórios", () => {
-  it("confeitaria compradora com WhatsApp confirmado → alto potencial", () => {
+describe("pickProductMatch — precisa de produto CONCRETO do catálogo", () => {
+  it("acha match quando a atividade casa com a aplicação do produto", () => {
+    const m = pickProductMatch(
+      "confeitaria que vende produtos embalados e precisa rotular as embalagens",
+      productContext.catalogProducts,
+    );
+    expect(m).not.toBeNull();
+    expect(m!.name).toContain("Rótulos");
+  });
+  it("retorna null para termo amplo ('comunicação visual')", () => {
+    const m = pickProductMatch(
+      "empresa de comunicação visual e material gráfico personalizado",
+      productContext.catalogProducts,
+    );
+    expect(m).toBeNull();
+  });
+  it("retorna null quando nada do catálogo casa", () => {
+    expect(pickProductMatch("escritório de contabilidade e consultoria tributária", productContext.catalogProducts)).toBeNull();
+  });
+});
+
+describe("evaluateGates — só passa quem cumpre TODOS os requisitos", () => {
+  const ok = {
+    score: 85,
+    buyerFit: 80,
+    productFit: 70,
+    productMatch: { name: "Rótulos adesivos para embalagem" },
+    individualBusiness: true,
+    resultType: "business" as const,
+    competitor: false,
+    regionMatch: true,
+    hasCity: true,
+    whatsappVerified: true,
+    channelRequirement: "whatsapp" as const,
+  };
+  it("aprova quando tudo passa", () => {
+    const g = evaluateGates(ok);
+    expect(g.prospectable).toBe(true);
+    expect(g.qualification).toBe("high");
+    expect(g.discardReason).toBeNull();
+  });
+  it("reprova agregador / não-empresa", () => {
+    expect(evaluateGates({ ...ok, resultType: "aggregator" }).prospectable).toBe(false);
+    expect(evaluateGates({ ...ok, individualBusiness: false }).prospectable).toBe(false);
+  });
+  it("reprova concorrente, fora de região, sem WhatsApp, sem produto", () => {
+    expect(evaluateGates({ ...ok, competitor: true }).prospectable).toBe(false);
+    expect(evaluateGates({ ...ok, regionMatch: false }).prospectable).toBe(false);
+    expect(evaluateGates({ ...ok, whatsappVerified: false }).prospectable).toBe(false);
+    expect(evaluateGates({ ...ok, productMatch: null, productFit: 0 }).prospectable).toBe(false);
+    expect(evaluateGates({ ...ok, buyerFit: 40 }).prospectable).toBe(false);
+  });
+});
+
+describe("deriveSignals — sinais NUNCA contradizem os números", () => {
+  it("buyer_fit 0 → nenhum sinal de 'empresa compradora'", () => {
+    const s = deriveSignals({
+      individualBusiness: true,
+      competitor: false,
+      resultType: "business",
+      buyerFit: 0,
+      productFit: 0,
+      productMatch: null,
+      regionMatch: false,
+      city: null,
+      whatsappVerified: false,
+      channelRequirement: "whatsapp",
+    });
+    expect(s.some((x) => /comprador/i.test(x.label))).toBe(false);
+  });
+  it("agregador / não-empresa → zero sinais", () => {
+    const s = deriveSignals({
+      individualBusiness: false,
+      competitor: false,
+      resultType: "aggregator",
+      buyerFit: 0,
+      productFit: 0,
+      productMatch: null,
+      regionMatch: false,
+      city: null,
+      whatsappVerified: false,
+      channelRequirement: "whatsapp",
+    });
+    expect(s).toHaveLength(0);
+  });
+});
+
+describe("qualify — buyer fit + produto concreto + WhatsApp obrigatórios", () => {
+  it("confeitaria compradora com WhatsApp confirmado → alto potencial + prospectable", () => {
     const q = score({
       companyName: "Doce Encanto Confeitaria",
       businessType: "confectionery",
-      description: "Confeitaria artesanal. Vendemos produtos embalados e temos linha própria de doces.",
+      description: "Confeitaria artesanal. Vendemos produtos embalados e temos linha própria de doces; rotulamos as embalagens.",
       city: "Curitiba",
       state: "PR",
       website: "https://doceencanto.com.br",
@@ -167,27 +304,31 @@ describe("qualify — buyer fit + WhatsApp obrigatórios", () => {
       discoveryQuery: "confeitaria Curitiba",
       sourceQuality: 100,
     });
-    expect(q.buyerFitScore).toBeGreaterThanOrEqual(60);
+    expect(q.buyerFitScore).toBeGreaterThanOrEqual(70);
+    expect(q.productMatch).not.toBeNull();
+    expect(q.productFitScore).toBeGreaterThanOrEqual(60);
     expect(q.qualification).toBe("high");
+    expect(q.prospectable).toBe(true);
     expect(q.discardReason).toBeNull();
+    expect(q.signals.some((s) => /comprador/i.test(s.label))).toBe(true);
   });
 
-  it("empresa relevante SEM WhatsApp → nunca qualificada, score ≤ 49", () => {
+  it("empresa compradora SEM WhatsApp → nunca prospectável, score ≤ 49", () => {
     const q = score({
       companyName: "Saboaria da Lua",
       businessType: "soap_brand",
-      description: "Sabonetes artesanais com linha própria.",
+      description: "Sabonetes artesanais com linha própria de produtos embalados; precisamos de rótulos para as embalagens.",
       city: "Curitiba",
       website: "https://saboariadalua.com.br",
       instagram: "https://instagram.com/saboariadalua",
       whatsappVerified: false,
     });
-    expect(q.qualification).toBe("low");
+    expect(q.prospectable).toBe(false);
     expect(q.score).toBeLessThanOrEqual(49);
     expect(q.discardReason).toBe("WhatsApp comercial não confirmado");
   });
 
-  it("concorrente (gráfica) → buyer_fit 0, não qualificado", () => {
+  it("concorrente (gráfica) → buyer_fit 0, descartado, sem sinais", () => {
     const q = score({
       companyName: "Gráfica Rápida",
       businessType: "company",
@@ -196,16 +337,18 @@ describe("qualify — buyer fit + WhatsApp obrigatórios", () => {
       whatsappVerified: true,
     });
     expect(q.buyerFitScore).toBe(0);
-    expect(q.qualification).toBe("low");
-    expect(q.discardReason).toContain("concorrente");
+    expect(q.prospectable).toBe(false);
+    expect(q.signals).toHaveLength(0);
+    expect(q.discardReason).toContain("oncorrente");
   });
 
-  it("não é empresa → não qualificado", () => {
+  it("não é empresa → não qualificado e sem sinais", () => {
     const q = score({ resultType: "government", businessType: "unknown", city: "Curitiba", whatsappVerified: true });
-    expect(q.qualification).toBe("low");
+    expect(q.prospectable).toBe(false);
+    expect(q.signals).toHaveLength(0);
   });
 
-  it("consultoria (sem product fit) com WhatsApp → não é alto", () => {
+  it("consultoria (sem produto concreto do catálogo) com WhatsApp → descartada", () => {
     const q = score({
       companyName: "Consultoria Alfa",
       businessType: "service_business",
@@ -214,18 +357,8 @@ describe("qualify — buyer fit + WhatsApp obrigatórios", () => {
       whatsappVerified: true,
       sourceQuality: 100,
     });
-    expect(q.buyerFitScore).toBeLessThan(50);
-    expect(q.qualification).not.toBe("high");
-  });
-
-  it("bandas: sem whatsapp em campanha whatsapp nunca qualifica", () => {
-    const args = {
-      final: 90, buyerFit: 90, productFit: 90,
-      resultType: "business" as const, competitor: false,
-      channelRequirement: "whatsapp" as const,
-    };
-    expect(qualificationBand({ ...args, whatsappVerified: false })).toBe("low");
-    expect(qualificationBand({ ...args, whatsappVerified: true })).toBe("high");
+    expect(q.productMatch).toBeNull();
+    expect(q.prospectable).toBe(false);
   });
 });
 
@@ -240,10 +373,12 @@ describe("catálogo é a fonte da verdade", () => {
   it("aceita abordagem só com o produto do catálogo", () => {
     expect(guard("Apresentar adesivos e rótulos personalizados para as embalagens.")).toBe(true);
   });
-  it("heuristicApproach fica no catálogo", () => {
-    const a = heuristicApproach({ companyName: "Doce Encanto", businessType: "confectionery" }, productContext);
-    expect(guard(a)).toBe(true);
-    expect(a.toLowerCase()).toContain("adesivos e rótulos");
+  it("heuristicApproach fica preso a um produto concreto", () => {
+    const a = heuristicApproach(
+      { companyName: "Doce Encanto", productMatch: { name: "Rótulos adesivos para embalagem", reason: "x" } },
+      productContext,
+    );
+    expect(a.toLowerCase()).toContain("rótulos adesivos");
   });
 });
 
@@ -251,35 +386,41 @@ describe("rodada de descoberta — nova pesquisa não acumula", () => {
   const mk = (o: Partial<DiscoveredCompany>): DiscoveredCompany =>
     ({
       companyName: "X",
+      resultType: "business",
       competitor: false,
+      individualBusiness: true,
       whatsappVerified: false,
       qualification: "low",
+      prospectable: false,
       dedupeKey: "k",
       ...o,
     } as DiscoveredCompany);
 
   it("descoberta aprovada em rodada anterior carrega status", () => {
     expect(
-      resolveRowStatus(mk({ qualification: "low" }), {
+      resolveRowStatus(mk({ prospectable: false }), {
         lead_id: "l1", approved_at: "t", approved_by: "u",
       }),
     ).toBe("approved");
   });
-  it("sem aprovação anterior: concorrente→rejected, qualificada→qualified", () => {
-    expect(resolveRowStatus(mk({ competitor: true }), undefined)).toBe("rejected");
-    expect(resolveRowStatus(mk({ qualification: "high" }), undefined)).toBe("qualified");
-    expect(resolveRowStatus(mk({ qualification: "low" }), undefined)).toBe("discovered");
+  it("sem aprovação: prospectável→qualified, resto→rejected", () => {
+    expect(resolveRowStatus(mk({ prospectable: true }), undefined)).toBe("qualified");
+    expect(resolveRowStatus(mk({ prospectable: false }), undefined)).toBe("rejected");
+    expect(resolveRowStatus(mk({ competitor: true, prospectable: false }), undefined)).toBe("rejected");
   });
-  it("runStats conta só os candidatos da rodada", () => {
-    const s = runStats([
-      mk({ whatsappVerified: true, qualification: "high" }),
-      mk({ whatsappVerified: true, qualification: "medium" }),
-      mk({ whatsappVerified: false, qualification: "low" }),
+  it("runStats: found = só leads válidos", () => {
+    const qualified = [
+      mk({ prospectable: true, whatsappVerified: true }),
+      mk({ prospectable: true, whatsappVerified: true }),
+    ];
+    const rejected = [
+      mk({ whatsappVerified: false }),
       mk({ competitor: true }),
-    ]);
-    expect(s.found).toBe(4);
-    expect(s.prospectable).toBe(2);
-    expect(s.qualified).toBe(2);
+    ];
+    const s = runStats(qualified, rejected);
+    expect(s.found).toBe(2);
+    expect(s.screened).toBe(4);
+    expect(s.rejected).toBe(2);
     expect(s.competitors).toBe(1);
     expect(s.noWhatsapp).toBe(1);
   });

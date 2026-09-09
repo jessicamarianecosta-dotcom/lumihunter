@@ -6,6 +6,13 @@
  * interface, sem tocar no orquestrador.
  */
 
+/** Produto concreto do catálogo da empresa. */
+export interface CatalogProductRef {
+  name: string;
+  keywords: string[];
+  applications: string[];
+}
+
 /** Contexto do produto REAL da campanha — a "regra de negócio" da busca. */
 export interface ProductContext {
   name: string;
@@ -17,6 +24,11 @@ export interface ProductContext {
   exampleBuyers: string[];
   idealAudience: string | null;
   variantNames: string[];
+  /**
+   * Produtos concretos do catálogo (Produtos & Serviços). A qualificação exige
+   * apontar UM destes — "comunicação visual" genérico não conta.
+   */
+  catalogProducts: CatalogProductRef[];
   /** "catalog" = veio de um produto cadastrado; "text" = só o campo livre. */
   source: "catalog" | "text";
 }
@@ -87,6 +99,8 @@ export interface LeadSource {
 export type ResultType =
   | "business"
   | "article"
+  | "aggregator"
+  | "news"
   | "directory"
   | "event"
   | "association"
@@ -143,17 +157,24 @@ export interface DiscoveredCompany {
   resultType: ResultType;
   businessType: BusinessType;
   sourceQuality: number;
+  /** true = a URL representa UMA empresa específica (não uma lista/artigo). */
+  individualBusiness: boolean;
   /** true = fornecedor/concorrente do mesmo produto (nunca vira lead). */
   competitor: boolean;
   /** WhatsApp comercial confirmado por evidência (não assumido do telefone). */
   whatsappVerified: boolean;
+  whatsappEvidence: string | null;
 
   /** Score final (0-100). */
   score: number;
   buyerFitScore: number;
   productFitScore: number;
   businessFitScore: number;
+  /** Produto CONCRETO do catálogo compatível — obrigatório para qualificar. */
+  productMatch: { name: string; reason: string } | null;
   qualification: Qualification;
+  /** true = passou em TODOS os gates → aparece na lista principal. */
+  prospectable: boolean;
   qualificationReason: string;
   qualificationSignals: QualificationSignal[];
   /** Fatos concretos que embasam a qualificação (nunca especulação). */
@@ -165,14 +186,16 @@ export interface DiscoveredCompany {
 }
 
 export interface DiscoveryRunResult {
-  /** Total de resultados brutos vindos das fontes. */
+  /** Total de páginas cruas vindas das fontes. */
   rawCount: number;
-  /** Resultados descartados por não serem empresas (artigos, diretórios…). */
-  discardedCount: number;
-  /** Motivos de descarte agregados (para o relatório). */
+  /** Total que passou por classificação/qualificação (candidatos analisados). */
+  screenedCount: number;
+  /** LEADS válidos — passaram em TODOS os gates. Vão para a lista principal. */
+  qualified: DiscoveredCompany[];
+  /** Candidatos analisados mas reprovados — ficam só na aba "Descartados". */
+  rejected: DiscoveredCompany[];
+  /** Motivos de descarte agregados (para o relatório e a aba). */
   discardReasons: Record<string, number>;
-  /** Candidatos após normalização + dedupe + hard filter. */
-  candidates: DiscoveredCompany[];
   queries: string[];
   aiUsed: boolean;
 }

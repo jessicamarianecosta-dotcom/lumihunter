@@ -127,7 +127,7 @@ export default async function CampanhaPage({
       ? supabase
           .from("lead_discoveries")
           .select(
-            "id, company_name, segment, description, city, state, phone, whatsapp, email, website, instagram, source, source_url, discovery_query, score, buyer_fit_score, product_fit_score, business_fit_score, result_type, business_type, competitor, whatsapp_verified, discard_reason, qualification, qualification_reason, qualification_signals, evidence, qualified_by, recommended_approach, status, discovered_at",
+            "id, company_name, segment, description, city, state, phone, whatsapp, email, website, instagram, source, source_url, discovery_query, score, buyer_fit_score, product_fit_score, business_fit_score, result_type, business_type, individual_business, competitor, whatsapp_verified, whatsapp_evidence, product_match_name, product_match_reason, discard_reason, qualification, qualification_reason, qualification_signals, evidence, qualified_by, recommended_approach, status, discovered_at",
           )
           .eq("campaign_id", id)
           .eq("discovery_run_id", runId)
@@ -183,13 +183,11 @@ export default async function CampanhaPage({
   const rows = targets ?? [];
 
   const disc = (discoveries ?? []) as unknown as DiscoveryRow[];
-  const discFound = disc.length;
-  const discProspectable = disc.filter(
-    (d) => d.whatsapp_verified && !d.competitor,
-  ).length;
-  const discQualified = disc.filter(
+  const discScreened = disc.length;
+  const discLeads = disc.filter(
     (d) => d.status === "qualified" || d.status === "approved",
   ).length;
+  const discDiscarded = disc.filter((d) => d.status === "rejected").length;
   const discApproved = approvedAllTime ?? 0;
   const lastRunLabel =
     lastRun?.status === "failed"
@@ -210,10 +208,10 @@ export default async function CampanhaPage({
   const briefReady = !!productLabel && !!audienceLabel && (regions.length > 0 || !!campaign.city);
 
   const discoveryStats = [
-    { k: "Encontrados", v: discFound },
-    { k: "Prospectáveis", v: discProspectable },
-    { k: "Qualificados", v: discQualified },
-    { k: "Aprovados", v: discApproved },
+    { k: "🔥 Leads de alto potencial", v: discLeads },
+    { k: "Já adicionados", v: discApproved },
+    { k: "Descartados", v: discDiscarded },
+    { k: "Analisados", v: discScreened },
   ];
   // ── Abordagem (fila de WhatsApp) ──────────────────────────────────────
   type QueueRaw = {
