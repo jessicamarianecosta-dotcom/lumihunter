@@ -45,12 +45,25 @@ export default async function CampanhaPage({
   const ctx = await getAppContext();
   const supabase = await createClient();
 
-  const { data: campaign } = await supabase
-    .from("campaigns")
-    .select("*, products(name)")
-    .eq("id", id)
-    .eq("company_id", ctx.company.id)
-    .maybeSingle();
+  // Busca a campanha da empresa ativa. Distingue "erro transitório de consulta"
+  // (recarrega) de "campanha realmente não existe aqui" (notFound / outra empresa).
+  async function fetchCampaign() {
+    return supabase
+      .from("campaigns")
+      .select("*")
+      .eq("id", id)
+      .eq("company_id", ctx.company.id)
+      .maybeSingle();
+  }
+  let { data: campaign, error: campErr } = await fetchCampaign();
+  if (campErr) {
+    await new Promise((r) => setTimeout(r, 300));
+    ({ data: campaign, error: campErr } = await fetchCampaign());
+  }
+  if (campErr) {
+    console.error("[campanhas/[id]] erro ao carregar campanha", campErr);
+    throw new Error("Falha ao carregar a campanha. Tente novamente.");
+  }
 
   if (!campaign) {
     // A campanha pode existir, mas em OUTRA empresa do usuário (empresa ativa
@@ -156,7 +169,7 @@ export default async function CampanhaPage({
             product_id: campaign.product_id,
           },
           ctx.company.name,
-        )
+        ).catch(() => null)
       : Promise.resolve(null),
   ]);
 
@@ -182,8 +195,9 @@ export default async function CampanhaPage({
   const regions: string[] = campaign.regions ?? [];
   const productLabel =
     campaign.product_text ??
-    (campaign.products as { name: string } | null)?.name ??
-    null;
+    (campaign.product_id
+      ? ((products ?? []).find((p) => p.id === campaign.product_id)?.name ?? null)
+      : null);
   const audienceLabel = campaign.audience_text ?? campaign.segment ?? null;
   const regionLabel = regions.join(", ") || campaign.city || null;
   const briefReady = !!productLabel && !!audienceLabel && (regions.length > 0 || !!campaign.city);

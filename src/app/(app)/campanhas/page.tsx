@@ -86,7 +86,11 @@ export default async function CampanhasPage() {
               <CardContent className="flex items-center justify-between p-4">
                 <div>
                   <p className="font-medium">
-                    <Link href={`/campanhas/${c.id}`} className="hover:underline">
+                    <Link
+                      href={`/campanhas/${c.id}`}
+                      prefetch={false}
+                      className="hover:underline"
+                    >
                       {c.name}
                     </Link>{" "}
                     <Badge
