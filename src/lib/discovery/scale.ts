@@ -242,7 +242,7 @@ export async function runScaleBatch(
     const { data: campaign } = await admin
       .from("campaigns")
       .select(
-        "id, company_id, name, channel, status, product_id, product_text, outreach_automatic, outreach_status, outreach_base_message, outreach_personalize_ai, outreach_send_catalog, outreach_catalog_pdf_id, max_opportunities",
+        "id, company_id, name, channel, status, regions, product_id, product_text, outreach_automatic, outreach_status, outreach_base_message, outreach_personalize_ai, outreach_send_catalog, outreach_catalog_pdf_id, max_opportunities",
       )
       .eq("id", run.campaign_id)
       .maybeSingle();
@@ -390,6 +390,7 @@ export async function runScaleBatch(
             outreach_personalize_ai: campaign.outreach_personalize_ai,
             outreach_send_catalog: campaign.outreach_send_catalog,
             outreach_catalog_pdf_id: campaign.outreach_catalog_pdf_id,
+            regions: campaign.regions,
           },
           userId: null,
           promoted: promo.promoted,

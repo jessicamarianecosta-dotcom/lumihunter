@@ -1,8 +1,42 @@
 /**
  * Checklist eliminatório antes de colocar/enviar um lead na fila. Função pura.
  *
- * Qualquer requisito crítico que falhe → não envia.
+ * GATE OBRIGATÓRIO (e SÓ ele): empresa identificável · região compatível ·
+ * não é concorrente · WhatsApp válido/confirmado · campanha ativa · sem
+ * opt-out · não duplicado. buyer_fit / product_fit / score / segmento /
+ * "evidence textual" NÃO bloqueiam. Catálogo é best-effort (o worker anexa
+ * se houver; não impede o texto de sair).
  */
+
+/** Normaliza para comparação de região (sem acento, minúsculo). */
+function normRegion(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .trim();
+}
+
+/**
+ * Região compatível a partir de dados ESTRUTURADOS: a cidade/UF do lead bate
+ * com alguma região da campanha. Sem exigir frase dentro de `evidence`.
+ */
+export function regionMatches(
+  campaignRegions: string[],
+  city: string | null,
+  state: string | null,
+): boolean {
+  const regions = (campaignRegions ?? []).map(normRegion).filter(Boolean);
+  if (regions.length === 0) return false;
+  const hay = [city, state].filter(Boolean).map((v) => normRegion(v as string));
+  if (hay.length === 0) return false;
+  return regions.some((r) => {
+    const main = r.split(/\s+e\s+|,|\//)[0].trim();
+    return hay.some(
+      (h) => h.includes(main) || (main.length > 2 && main.includes(h)),
+    );
+  });
+}
 
 export interface EligibilityInput {
   whatsappVerified: boolean;
@@ -42,12 +76,7 @@ export function checkEligibility(i: EligibilityInput): EligibilityResult {
     return { ok: false, code: "already_replied", reason: "O lead já respondeu — não iniciar novo contato." };
   if (!i.hasMessage)
     return { ok: false, code: "no_message", reason: "Nenhuma mensagem preparada." };
-  if (i.catalogRequired && !i.catalogAvailable)
-    return {
-      ok: false,
-      code: "no_catalog",
-      reason: "A campanha exige catálogo, mas nenhum PDF está disponível.",
-    };
+  // Catálogo NÃO bloqueia: o worker anexa o PDF se existir; sem PDF, o texto sai mesmo assim.
   if (!i.whatsappIntegrationReady)
     return { ok: false, code: "no_integration", reason: "Integração de WhatsApp não configurada." };
   return { ok: true };
@@ -56,69 +85,76 @@ export function checkEligibility(i: EligibilityInput): EligibilityResult {
 /**
  * Portão final ANTES de colocar um resultado na fila automática. Puro.
  *
- * Confirma tudo o que o produto exige para enviar SEM aprovação manual:
- * empresa real individual · comprador potencial · região · não concorrente ·
- * WhatsApp comercial confirmado · produto REAL do catálogo compatível ·
- * catálogo disponível (se a campanha exige) · campanha ativa e automática ·
- * mensagem pronta e sem o nome da empresa · sem opt-out · sem envio concorrente.
- * Qualquer requisito obrigatório que falhe → NÃO ENVIAR.
+ * GATE OBRIGATÓRIO — e SÓ ele:
+ *   1. empresa identificável (resultado é empresa individual)
+ *   2. não é claramente concorrente
+ *   3. região compatível (dados estruturados: cidade/UF × regiões da campanha)
+ *   4. WhatsApp válido/confirmado (número + evidência de WhatsApp, não só telefone)
+ *   5. campanha ativa (e automática, no fluxo sem aprovação)
+ *   6. não está em opt-out
+ *   7. não é duplicado / já abordado / já respondeu
+ *
+ * NÃO bloqueia por: buyer_fit, product_fit, score, IA, segmento nulo,
+ * "evidence textual", catálogo. A mensagem continua sendo anônima
+ * (sem o nome da empresa) — isso é regra do conteúdo, verificada aqui.
  */
 export interface AutoOutreachInput {
-  prospectable: boolean;
   individualBusiness: boolean;
   competitor: boolean;
   resultType: string | null;
   regionConfirmed: boolean;
   whatsappVerified: boolean;
   whatsapp: string | null;
-  productMatchName: string | null;
-  buyerFit: number | null;
-  productFit: number | null;
   blocked: boolean;
   campaignActive: boolean;
   automaticEnabled: boolean;
   channel: string;
   hasMessage: boolean;
   messageMentionsName: boolean;
-  catalogRequired: boolean;
-  catalogAvailable: boolean;
   alreadyInFlightOrDone: boolean;
   alreadyReplied: boolean;
+  /** informativos — registrados, nunca bloqueiam. */
+  buyerFit?: number | null;
+  productFit?: number | null;
+  productMatchName?: string | null;
+  prospectable?: boolean;
 }
 
 export function validateProspectForAutomaticOutreach(
   i: AutoOutreachInput,
 ): EligibilityResult {
+  // 5. canal + campanha ativa + automática
   if (i.channel !== "whatsapp")
     return { ok: false, code: "channel", reason: "Canal da campanha não é WhatsApp." };
   if (!i.automaticEnabled)
     return { ok: false, code: "not_automatic", reason: "Prospecção automática não está ativada." };
   if (!i.campaignActive)
     return { ok: false, code: "campaign_inactive", reason: "Campanha não está ativa." };
-  if (!i.prospectable || i.resultType !== "business" || !i.individualBusiness)
-    return { ok: false, code: "not_a_business", reason: "Não é uma empresa individual compradora." };
+  // 1. empresa identificável
+  if (i.resultType !== "business" || !i.individualBusiness)
+    return { ok: false, code: "not_a_business", reason: "Não é uma empresa individual." };
+  // 2. não concorrente
   if (i.competitor)
     return { ok: false, code: "competitor", reason: "Concorrente/fornecedor do mesmo produto." };
+  // 3. região compatível
   if (!i.regionConfirmed)
     return { ok: false, code: "out_of_region", reason: "Região da campanha não confirmada." };
-  if ((i.buyerFit ?? 0) < 70)
-    return { ok: false, code: "weak_buyer", reason: "Sem evidência forte de que é comprador." };
-  if (!i.productMatchName || (i.productFit ?? 0) < 60)
-    return { ok: false, code: "no_product", reason: "Sem produto concreto do catálogo compatível." };
+  // 4. WhatsApp válido/confirmado
   if (!i.whatsappVerified || !i.whatsapp)
     return { ok: false, code: "no_whatsapp", reason: "WhatsApp comercial não confirmado." };
+  // 6. opt-out
   if (i.blocked)
     return { ok: false, code: "opted_out", reason: "Contato optou por não receber mensagens." };
+  // 7. duplicidade / já abordado / já respondeu
   if (i.alreadyReplied)
     return { ok: false, code: "already_replied", reason: "O contato já respondeu — atendimento humano." };
   if (i.alreadyInFlightOrDone)
     return { ok: false, code: "already_queued", reason: "Já existe uma abordagem para este contato." };
+  // integridade da mensagem (não é gate de qualificação)
   if (!i.hasMessage)
     return { ok: false, code: "no_message", reason: "Nenhuma mensagem preparada." };
   if (i.messageMentionsName)
     return { ok: false, code: "name_leak", reason: "A mensagem citou o nome da empresa." };
-  if (i.catalogRequired && !i.catalogAvailable)
-    return { ok: false, code: "no_catalog", reason: "A campanha exige catálogo, mas nenhum PDF está disponível." };
   return { ok: true };
 }
 

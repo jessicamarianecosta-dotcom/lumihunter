@@ -19,7 +19,7 @@ import { prepareMessages, type OutreachLead } from "./messages";
 import { mentionsCompanyName } from "./vars";
 import { resolveCampaignCatalogPdf } from "./catalog";
 import { isBlocked } from "./optout";
-import { validateProspectForAutomaticOutreach } from "./eligibility";
+import { validateProspectForAutomaticOutreach, regionMatches } from "./eligibility";
 import { markConversationOutreach } from "./conversation";
 
 type Admin = SupabaseClient<Database>;
@@ -37,6 +37,8 @@ export interface PromoteCampaign {
   outreach_personalize_ai: boolean;
   outreach_send_catalog: boolean;
   outreach_catalog_pdf_id: string | null;
+  /** regiões da campanha — usadas para confirmar a região por dado estruturado. */
+  regions?: string[] | null;
 }
 
 export interface PromotedLead {
@@ -216,9 +218,30 @@ export interface EnqueueResult {
   catalog: string | null;
 }
 
-const regionConfirmed = (d: Discovery): boolean =>
-  Array.isArray(d.evidence) &&
-  (d.evidence as unknown[]).some((e) => typeof e === "string" && e.startsWith("Na região"));
+/**
+ * Região compatível — SEM exigir frase dentro de `evidence`.
+ *
+ *  1. a descoberta já é `qualified`/`approved` → a região JÁ foi confirmada no
+ *     gate duro da descoberta (`qualify()` reprova quem não bate a região);
+ *  2. cidade/UF estruturada da descoberta bate com as regiões da campanha;
+ *  3. (legado) marcador "Na região" na evidência ou sinal "Região compatível".
+ */
+const regionConfirmed = (d: Discovery, regions?: string[] | null): boolean => {
+  if (d.status === "qualified" || d.status === "approved") return true;
+  if (regionMatches(regions ?? [], d.city, d.state)) return true;
+  const inEvidence =
+    Array.isArray(d.evidence) &&
+    (d.evidence as unknown[]).some(
+      (e) => typeof e === "string" && e.startsWith("Na região"),
+    );
+  if (inEvidence) return true;
+  const inSignals =
+    Array.isArray(d.qualification_signals) &&
+    (d.qualification_signals as { label?: string }[]).some(
+      (s) => typeof s?.label === "string" && s.label.startsWith("Região"),
+    );
+  return inSignals;
+};
 
 /**
  * Gera a mensagem, valida cada contato em `validateProspectForAutomaticOutreach`
@@ -340,24 +363,21 @@ export async function enqueueOutreach(
       .eq("direction", "inbound");
 
     const check = validateProspectForAutomaticOutreach({
-      prospectable: d.status === "qualified" || d.status === "approved",
       individualBusiness: d.individual_business,
       competitor: d.competitor,
       resultType: d.result_type,
-      regionConfirmed: regionConfirmed(d),
+      regionConfirmed: regionConfirmed(d, campaign.regions),
       whatsappVerified: d.whatsapp_verified,
       whatsapp: to,
-      productMatchName: d.product_match_name,
       buyerFit: d.buyer_fit_score,
       productFit: d.product_fit_score,
+      productMatchName: d.product_match_name,
       blocked,
       campaignActive: campaign.status === "active",
       automaticEnabled: args.auto ? campaign.outreach_automatic : true,
       channel: campaign.channel,
       hasMessage: !!message?.trim(),
       messageMentionsName: mentionsCompanyName(message ?? "", l?.name ?? d.company_name),
-      catalogRequired: campaign.outreach_send_catalog,
-      catalogAvailable: !!catalogPdf,
       alreadyInFlightOrDone: false,
       alreadyReplied: (inbound ?? 0) > 0,
     });
@@ -422,4 +442,89 @@ export async function enqueueOutreach(
   }
 
   return result;
+}
+
+/**
+ * Reprocessa os contatos que ficaram travados como `outreach_queue.status =
+ * 'skipped'` (ex.: barrados por um portão antigo que já foi corrigido).
+ *
+ *   apaga os itens 'skipped' da campanha  → NÃO conta como envio, não há
+ *   provider_message_id, não havia conversa criada
+ *     → reconstrói a lista de aprovados (lead + campaign_target)
+ *     → chama enqueueOutreach(auto=true): gera mensagem, revalida no portão
+ *       ATUAL e enfileira 'ready' (ou volta a 'skipped' com o motivo real).
+ *
+ * Itens que JÁ estão `ready/sending/sent/delivered/read/replied` não são
+ * tocados — sem risco de envio em dobro.
+ */
+export async function reprocessSkipped(
+  admin: Admin,
+  args: {
+    companyId: string;
+    companyName: string;
+    campaign: PromoteCampaign;
+    userId: string | null;
+  },
+): Promise<{ deletedSkipped: number; promoted: number } & EnqueueResult> {
+  const { campaign } = args;
+
+  const { data: skipped } = await admin
+    .from("outreach_queue")
+    .select("id, campaign_target_id, lead_id")
+    .eq("company_id", args.companyId)
+    .eq("campaign_id", campaign.id)
+    .eq("status", "skipped");
+
+  const stuck = (skipped ?? []).filter((s) => s.lead_id && s.campaign_target_id);
+  const empty: { deletedSkipped: number; promoted: number } & EnqueueResult = {
+    deletedSkipped: 0,
+    promoted: 0,
+    enqueued: 0,
+    skipped: [],
+    aiUsed: false,
+    nameLeaksFixed: 0,
+    catalog: null,
+  };
+  if (stuck.length === 0) return empty;
+
+  await admin
+    .from("outreach_queue")
+    .delete()
+    .in(
+      "id",
+      stuck.map((s) => s.id),
+    );
+
+  // descobertas correspondentes (para buyer/product fit, evidências, gates)
+  const leadIds = [...new Set(stuck.map((s) => s.lead_id as string))];
+  const { data: discs } = await admin
+    .from("lead_discoveries")
+    .select("*")
+    .eq("company_id", args.companyId)
+    .eq("campaign_id", campaign.id)
+    .in("lead_id", leadIds);
+  const discByLead = new Map((discs ?? []).map((d) => [d.lead_id, d]));
+
+  const promoted: PromotedLead[] = [];
+  for (const s of stuck) {
+    const d = discByLead.get(s.lead_id as string);
+    if (!d) continue;
+    promoted.push({
+      discovery: d as Discovery,
+      leadId: s.lead_id as string,
+      targetId: s.campaign_target_id as string,
+    });
+  }
+  if (promoted.length === 0) return { ...empty, deletedSkipped: stuck.length };
+
+  const enq = await enqueueOutreach(admin, {
+    companyId: args.companyId,
+    companyName: args.companyName,
+    campaign,
+    userId: args.userId,
+    promoted,
+    auto: true,
+  });
+
+  return { deletedSkipped: stuck.length, promoted: promoted.length, ...enq };
 }
