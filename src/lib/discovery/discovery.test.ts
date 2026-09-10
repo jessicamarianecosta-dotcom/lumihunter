@@ -248,12 +248,18 @@ describe("evaluateGates — só passa quem cumpre TODOS os requisitos", () => {
     expect(evaluateGates({ ...ok, resultType: "aggregator" }).prospectable).toBe(false);
     expect(evaluateGates({ ...ok, individualBusiness: false }).prospectable).toBe(false);
   });
-  it("reprova concorrente, fora de região, sem WhatsApp, sem produto", () => {
+  it("reprova concorrente, fora de região, sem WhatsApp (gates duros)", () => {
     expect(evaluateGates({ ...ok, competitor: true }).prospectable).toBe(false);
     expect(evaluateGates({ ...ok, regionMatch: false }).prospectable).toBe(false);
     expect(evaluateGates({ ...ok, whatsappVerified: false }).prospectable).toBe(false);
-    expect(evaluateGates({ ...ok, productMatch: null, productFit: 0 }).prospectable).toBe(false);
-    expect(evaluateGates({ ...ok, buyerFit: 40 }).prospectable).toBe(false);
+  });
+  it("buyer_fit / product_fit baixos NÃO bloqueiam — só rebaixam a banda", () => {
+    const semProduto = evaluateGates({ ...ok, productMatch: null, productFit: 0 });
+    expect(semProduto.prospectable).toBe(true);
+    expect(semProduto.qualification).toBe("medium");
+    const buyerBaixo = evaluateGates({ ...ok, buyerFit: 40 });
+    expect(buyerBaixo.prospectable).toBe(true);
+    expect(buyerBaixo.qualification).toBe("medium");
   });
 });
 
@@ -348,7 +354,7 @@ describe("qualify — buyer fit + produto concreto + WhatsApp obrigatórios", ()
     expect(q.signals).toHaveLength(0);
   });
 
-  it("consultoria (sem produto concreto do catálogo) com WhatsApp → descartada", () => {
+  it("empresa individual na região com WhatsApp, mesmo sem produto concreto → abordável (banda medium)", () => {
     const q = score({
       companyName: "Consultoria Alfa",
       businessType: "service_business",
@@ -358,7 +364,8 @@ describe("qualify — buyer fit + produto concreto + WhatsApp obrigatórios", ()
       sourceQuality: 100,
     });
     expect(q.productMatch).toBeNull();
-    expect(q.prospectable).toBe(false);
+    expect(q.prospectable).toBe(true);
+    expect(q.qualification).toBe("medium");
   });
 });
 

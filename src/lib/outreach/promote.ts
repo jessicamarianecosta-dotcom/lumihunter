@@ -216,9 +216,22 @@ export interface EnqueueResult {
   catalog: string | null;
 }
 
-const regionConfirmed = (d: Discovery): boolean =>
-  Array.isArray(d.evidence) &&
-  (d.evidence as unknown[]).some((e) => typeof e === "string" && e.startsWith("Na região"));
+const regionConfirmed = (d: Discovery): boolean => {
+  const inEvidence =
+    Array.isArray(d.evidence) &&
+    (d.evidence as unknown[]).some(
+      (e) => typeof e === "string" && e.startsWith("Na região"),
+    );
+  if (inEvidence) return true;
+  // Fallback: sinal estruturado "Região compatível" (a IA reescreve as
+  // evidências em prosa e o marcador textual pode não sobreviver).
+  const inSignals =
+    Array.isArray(d.qualification_signals) &&
+    (d.qualification_signals as { label?: string }[]).some(
+      (s) => typeof s?.label === "string" && s.label.startsWith("Região"),
+    );
+  return inSignals;
+};
 
 /**
  * Gera a mensagem, valida cada contato em `validateProspectForAutomaticOutreach`
@@ -422,4 +435,89 @@ export async function enqueueOutreach(
   }
 
   return result;
+}
+
+/**
+ * Reprocessa os contatos que ficaram travados como `outreach_queue.status =
+ * 'skipped'` (ex.: barrados por um portão antigo que já foi corrigido).
+ *
+ *   apaga os itens 'skipped' da campanha  → NÃO conta como envio, não há
+ *   provider_message_id, não havia conversa criada
+ *     → reconstrói a lista de aprovados (lead + campaign_target)
+ *     → chama enqueueOutreach(auto=true): gera mensagem, revalida no portão
+ *       ATUAL e enfileira 'ready' (ou volta a 'skipped' com o motivo real).
+ *
+ * Itens que JÁ estão `ready/sending/sent/delivered/read/replied` não são
+ * tocados — sem risco de envio em dobro.
+ */
+export async function reprocessSkipped(
+  admin: Admin,
+  args: {
+    companyId: string;
+    companyName: string;
+    campaign: PromoteCampaign;
+    userId: string | null;
+  },
+): Promise<{ deletedSkipped: number; promoted: number } & EnqueueResult> {
+  const { campaign } = args;
+
+  const { data: skipped } = await admin
+    .from("outreach_queue")
+    .select("id, campaign_target_id, lead_id")
+    .eq("company_id", args.companyId)
+    .eq("campaign_id", campaign.id)
+    .eq("status", "skipped");
+
+  const stuck = (skipped ?? []).filter((s) => s.lead_id && s.campaign_target_id);
+  const empty: { deletedSkipped: number; promoted: number } & EnqueueResult = {
+    deletedSkipped: 0,
+    promoted: 0,
+    enqueued: 0,
+    skipped: [],
+    aiUsed: false,
+    nameLeaksFixed: 0,
+    catalog: null,
+  };
+  if (stuck.length === 0) return empty;
+
+  await admin
+    .from("outreach_queue")
+    .delete()
+    .in(
+      "id",
+      stuck.map((s) => s.id),
+    );
+
+  // descobertas correspondentes (para buyer/product fit, evidências, gates)
+  const leadIds = [...new Set(stuck.map((s) => s.lead_id as string))];
+  const { data: discs } = await admin
+    .from("lead_discoveries")
+    .select("*")
+    .eq("company_id", args.companyId)
+    .eq("campaign_id", campaign.id)
+    .in("lead_id", leadIds);
+  const discByLead = new Map((discs ?? []).map((d) => [d.lead_id, d]));
+
+  const promoted: PromotedLead[] = [];
+  for (const s of stuck) {
+    const d = discByLead.get(s.lead_id as string);
+    if (!d) continue;
+    promoted.push({
+      discovery: d as Discovery,
+      leadId: s.lead_id as string,
+      targetId: s.campaign_target_id as string,
+    });
+  }
+  if (promoted.length === 0) return { ...empty, deletedSkipped: stuck.length };
+
+  const enq = await enqueueOutreach(admin, {
+    companyId: args.companyId,
+    companyName: args.companyName,
+    campaign,
+    userId: args.userId,
+    promoted,
+    auto: true,
+  });
+
+  return { deletedSkipped: stuck.length, promoted: promoted.length, ...enq };
 }

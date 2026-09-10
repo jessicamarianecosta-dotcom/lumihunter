@@ -247,7 +247,22 @@ ${list}
     if (item.reason) target.qualificationReason = item.reason;
     if (Array.isArray(item.evidence)) {
       const aiEv = item.evidence.filter((s) => typeof s === "string" && s.trim());
-      if (aiEv.length) target.evidence = aiEv;
+      if (aiEv.length) {
+        // Preserva os marcadores legíveis por máquina que os portões de
+        // envio automático consultam ("Na região: ...", "WhatsApp comercial
+        // encontrado") — a IA os reescreve em prosa e os perderia.
+        const markers = target.evidence.filter(
+          (e) =>
+            typeof e === "string" &&
+            (e.startsWith("Na região") ||
+              e.startsWith("WhatsApp comercial encontrado")),
+        );
+        const seen = new Set(aiEv.map((s) => s.toLowerCase()));
+        target.evidence = [
+          ...markers.filter((m) => !seen.has(m.toLowerCase())),
+          ...aiEv,
+        ];
+      }
     }
     target.recommendedApproach = heuristicApproach(target, ctx);
     target.qualifiedBy = "ai";

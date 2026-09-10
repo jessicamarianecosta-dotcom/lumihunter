@@ -70,6 +70,7 @@ export function OutreachPanel(p: Props) {
 
   const drafts = p.rows.filter((r) => r.status === "draft");
   const ready = p.rows.filter((r) => r.status === "ready" || r.status === "scheduled");
+  const stuck = p.rows.filter((r) => r.status === "skipped");
 
   const call = useCallback(
     async (path: string, body?: unknown) => {
@@ -113,6 +114,26 @@ export function OutreachPanel(p: Props) {
       ok
         ? `${data.prepared ?? 0} mensagens preparadas${data.aiUsed ? " (com IA)" : ""}${data.catalog ? ` · catálogo: ${data.catalog}` : ""}.`
         : data.error ?? "Falha ao gerar mensagens.",
+    );
+    router.refresh();
+  }
+
+  async function reprocess() {
+    setBusy("reprocess");
+    setMsg(null);
+    const { ok, data } = await call("reprocess");
+    setBusy(null);
+    setMsg(
+      ok
+        ? `${data.deletedSkipped ?? 0} travados reprocessados · ${data.enqueued ?? 0} entraram na fila` +
+            (data.stillSkipped
+              ? ` · ${data.stillSkipped} ainda barrados (${Object.entries(
+                  data.stillSkippedReasons ?? {},
+                )
+                  .map(([r, n]) => `${r}: ${n}`)
+                  .join(", ")})`
+              : "")
+        : data.error ?? "Falha ao reprocessar.",
     );
     router.refresh();
   }
@@ -175,6 +196,16 @@ export function OutreachPanel(p: Props) {
           {drafts.length > 0 && (
             <Button size="sm" variant="outline" onClick={approveAll} disabled={busy !== null}>
               <Check className="size-4" /> Aprovar {drafts.length} mensagens
+            </Button>
+          )}
+          {stuck.length > 0 && (
+            <Button size="sm" variant="outline" onClick={reprocess} disabled={busy !== null}>
+              {busy === "reprocess" ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <RefreshCw className="size-4" />
+              )}
+              Reprocessar {stuck.length} travados
             </Button>
           )}
         </div>

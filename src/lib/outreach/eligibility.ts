@@ -101,10 +101,7 @@ export function validateProspectForAutomaticOutreach(
     return { ok: false, code: "competitor", reason: "Concorrente/fornecedor do mesmo produto." };
   if (!i.regionConfirmed)
     return { ok: false, code: "out_of_region", reason: "Região da campanha não confirmada." };
-  if ((i.buyerFit ?? 0) < 70)
-    return { ok: false, code: "weak_buyer", reason: "Sem evidência forte de que é comprador." };
-  if (!i.productMatchName || (i.productFit ?? 0) < 60)
-    return { ok: false, code: "no_product", reason: "Sem produto concreto do catálogo compatível." };
+  // buyer_fit / product_fit: informativos (priorização), NÃO bloqueiam o envio.
   if (!i.whatsappVerified || !i.whatsapp)
     return { ok: false, code: "no_whatsapp", reason: "WhatsApp comercial não confirmado." };
   if (i.blocked)

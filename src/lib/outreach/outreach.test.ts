@@ -154,9 +154,6 @@ describe("validateProspectForAutomaticOutreach — portão final do envio autom�
     expect(validateProspectForAutomaticOutreach({ ...ok, resultType: "aggregator" }).code).toBe("not_a_business");
     expect(validateProspectForAutomaticOutreach({ ...ok, competitor: true }).code).toBe("competitor");
     expect(validateProspectForAutomaticOutreach({ ...ok, regionConfirmed: false }).code).toBe("out_of_region");
-    expect(validateProspectForAutomaticOutreach({ ...ok, buyerFit: 40 }).code).toBe("weak_buyer");
-    expect(validateProspectForAutomaticOutreach({ ...ok, productMatchName: null }).code).toBe("no_product");
-    expect(validateProspectForAutomaticOutreach({ ...ok, productFit: 20 }).code).toBe("no_product");
     expect(validateProspectForAutomaticOutreach({ ...ok, whatsappVerified: false }).code).toBe("no_whatsapp");
     expect(validateProspectForAutomaticOutreach({ ...ok, whatsapp: null }).code).toBe("no_whatsapp");
     expect(validateProspectForAutomaticOutreach({ ...ok, blocked: true }).code).toBe("opted_out");
@@ -168,6 +165,10 @@ describe("validateProspectForAutomaticOutreach — portão final do envio autom�
   });
   it("catálogo indisponível é ok se a campanha não exige", () => {
     expect(validateProspectForAutomaticOutreach({ ...ok, catalogRequired: false, catalogAvailable: false }).ok).toBe(true);
+  });
+  it("buyer_fit / product_fit baixos NÃO bloqueiam o envio (são só prioridade)", () => {
+    expect(validateProspectForAutomaticOutreach({ ...ok, buyerFit: 40 }).ok).toBe(true);
+    expect(validateProspectForAutomaticOutreach({ ...ok, productMatchName: null, productFit: 0 }).ok).toBe(true);
   });
 });
 

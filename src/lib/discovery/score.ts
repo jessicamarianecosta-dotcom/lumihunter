@@ -2,10 +2,11 @@
  * Qualificação de uma empresa candidata. Funções puras.
  *
  * REGRA: resultado de busca NÃO é lead. Só vira LEAD (aparece na lista
- * principal) o candidato que passa em TODOS os gates:
- *   empresa individual · não concorrente · região confirmada · buyer_fit ≥ 70
- *   · produto CONCRETO do catálogo compatível (product_fit ≥ 60) · WhatsApp
- *   comercial confirmado. Score é consequência dos gates, nunca o contrário.
+ * principal) o candidato que passa nos gates DUROS do fluxo principal:
+ *   empresa real individual · não concorrente · na região da campanha ·
+ *   WhatsApp comercial confirmado (quando o canal é WhatsApp).
+ * buyer_fit e product_fit NÃO bloqueiam — servem só para priorizar (banda
+ * high/medium). "Achou comprador possível + WhatsApp válido → abordar."
  */
 import { GENERIC_AUDIENCE } from "./queries";
 import type {
@@ -191,6 +192,9 @@ export function evaluateGates(args: {
   const fail = (r: string) =>
     ({ qualification: "low" as const, prospectable: false, discardReason: r });
 
+  // ── Gates DUROS do fluxo principal ────────────────────────────────────
+  // empresa real individual · não concorrente · na região · (WhatsApp, se o
+  // canal exige). buyer_fit / product_fit NÃO bloqueiam — são só prioridade.
   if (args.resultType !== "business")
     return fail(`Resultado é "${args.resultType}", não uma empresa`);
   if (!args.individualBusiness)
@@ -199,20 +203,18 @@ export function evaluateGates(args: {
     return fail("Concorrente/fornecedor do mesmo produto");
   if (!args.regionMatch)
     return fail(args.hasCity ? "Fora da região da campanha" : "Região não confirmada");
-  if (args.buyerFit < GATE_HIGH_BUYER)
-    return fail("Sem evidência forte de que é comprador do produto");
-  if (!args.productMatch || args.productFit < GATE_HIGH_PRODUCT)
-    return fail("Sem produto concreto do catálogo compatível");
   if (args.channelRequirement === "whatsapp" && !args.whatsappVerified)
     return fail("WhatsApp comercial não confirmado");
 
-  // passou em todos os gates
-  const qualification: Qualification = args.score >= 65 ? "high" : "medium";
-  return {
-    qualification,
-    prospectable: qualification === "high",
-    discardReason: qualification === "high" ? null : "Potencial médio — abaixo do corte de alto potencial",
-  };
+  // passou em todos os gates duros → é um lead abordável.
+  // A banda (high/medium) é só para ordenar/priorizar na tela.
+  const strong =
+    args.score >= 65 &&
+    args.buyerFit >= GATE_HIGH_BUYER &&
+    !!args.productMatch &&
+    args.productFit >= GATE_HIGH_PRODUCT;
+  const qualification: Qualification = strong ? "high" : "medium";
+  return { qualification, prospectable: true, discardReason: null };
 }
 
 export function qualify(
