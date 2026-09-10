@@ -19,7 +19,7 @@ import { prepareMessages, type OutreachLead } from "./messages";
 import { mentionsCompanyName } from "./vars";
 import { resolveCampaignCatalogPdf } from "./catalog";
 import { isBlocked } from "./optout";
-import { validateProspectForAutomaticOutreach } from "./eligibility";
+import { validateProspectForAutomaticOutreach, regionMatches } from "./eligibility";
 import { markConversationOutreach } from "./conversation";
 
 type Admin = SupabaseClient<Database>;
@@ -37,6 +37,8 @@ export interface PromoteCampaign {
   outreach_personalize_ai: boolean;
   outreach_send_catalog: boolean;
   outreach_catalog_pdf_id: string | null;
+  /** regiões da campanha — usadas para confirmar a região por dado estruturado. */
+  regions?: string[] | null;
 }
 
 export interface PromotedLead {
@@ -216,15 +218,23 @@ export interface EnqueueResult {
   catalog: string | null;
 }
 
-const regionConfirmed = (d: Discovery): boolean => {
+/**
+ * Região compatível — SEM exigir frase dentro de `evidence`.
+ *
+ *  1. a descoberta já é `qualified`/`approved` → a região JÁ foi confirmada no
+ *     gate duro da descoberta (`qualify()` reprova quem não bate a região);
+ *  2. cidade/UF estruturada da descoberta bate com as regiões da campanha;
+ *  3. (legado) marcador "Na região" na evidência ou sinal "Região compatível".
+ */
+const regionConfirmed = (d: Discovery, regions?: string[] | null): boolean => {
+  if (d.status === "qualified" || d.status === "approved") return true;
+  if (regionMatches(regions ?? [], d.city, d.state)) return true;
   const inEvidence =
     Array.isArray(d.evidence) &&
     (d.evidence as unknown[]).some(
       (e) => typeof e === "string" && e.startsWith("Na região"),
     );
   if (inEvidence) return true;
-  // Fallback: sinal estruturado "Região compatível" (a IA reescreve as
-  // evidências em prosa e o marcador textual pode não sobreviver).
   const inSignals =
     Array.isArray(d.qualification_signals) &&
     (d.qualification_signals as { label?: string }[]).some(
@@ -353,24 +363,21 @@ export async function enqueueOutreach(
       .eq("direction", "inbound");
 
     const check = validateProspectForAutomaticOutreach({
-      prospectable: d.status === "qualified" || d.status === "approved",
       individualBusiness: d.individual_business,
       competitor: d.competitor,
       resultType: d.result_type,
-      regionConfirmed: regionConfirmed(d),
+      regionConfirmed: regionConfirmed(d, campaign.regions),
       whatsappVerified: d.whatsapp_verified,
       whatsapp: to,
-      productMatchName: d.product_match_name,
       buyerFit: d.buyer_fit_score,
       productFit: d.product_fit_score,
+      productMatchName: d.product_match_name,
       blocked,
       campaignActive: campaign.status === "active",
       automaticEnabled: args.auto ? campaign.outreach_automatic : true,
       channel: campaign.channel,
       hasMessage: !!message?.trim(),
       messageMentionsName: mentionsCompanyName(message ?? "", l?.name ?? d.company_name),
-      catalogRequired: campaign.outreach_send_catalog,
-      catalogAvailable: !!catalogPdf,
       alreadyInFlightOrDone: false,
       alreadyReplied: (inbound ?? 0) > 0,
     });

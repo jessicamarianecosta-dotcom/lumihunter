@@ -33,7 +33,7 @@ export async function POST(
   const { data: campaign } = await admin
     .from("campaigns")
     .select(
-      "id, name, channel, status, product_id, product_text, outreach_automatic, outreach_base_message, outreach_personalize_ai, outreach_send_catalog, outreach_catalog_pdf_id, outreach_status",
+      "id, name, channel, status, regions, product_id, product_text, outreach_automatic, outreach_base_message, outreach_personalize_ai, outreach_send_catalog, outreach_catalog_pdf_id, outreach_status",
     )
     .eq("id", id)
     .eq("company_id", ctx.company.id)
@@ -61,27 +61,14 @@ export async function POST(
       outreach_personalize_ai: campaign.outreach_personalize_ai,
       outreach_send_catalog: campaign.outreach_send_catalog,
       outreach_catalog_pdf_id: campaign.outreach_catalog_pdf_id,
+      regions: campaign.regions,
     },
     userId: ctx.userId,
   });
 
-  // Se algo entrou na fila e a campanha está ativa e não pausada, liga o worker.
-  if (
-    result.enqueued > 0 &&
-    campaign.status === "active" &&
-    campaign.outreach_status !== "paused"
-  ) {
-    await admin
-      .from("campaigns")
-      .update({
-        outreach_status: "running",
-        outreach_started_at: new Date().toISOString(),
-        outreach_consecutive_errors: 0,
-      })
-      .eq("id", id)
-      .eq("company_id", ctx.company.id);
-  }
-
+  // NÃO liga o worker automaticamente: os itens entram como "ready" e a
+  // usuária faz o teste controlado ("Enviar agora" em 1 lead) e só então
+  // "Iniciar prospecção" para o restante.
   return NextResponse.json({
     deletedSkipped: result.deletedSkipped,
     promoted: result.promoted,

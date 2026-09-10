@@ -59,7 +59,7 @@ export async function POST(
   const { data: campaign } = await admin
     .from("campaigns")
     .select(
-      "id, name, channel, status, product_id, product_text, outreach_automatic, outreach_status, outreach_base_message, outreach_personalize_ai, outreach_send_catalog, outreach_catalog_pdf_id",
+      "id, name, channel, status, regions, product_id, product_text, outreach_automatic, outreach_status, outreach_base_message, outreach_personalize_ai, outreach_send_catalog, outreach_catalog_pdf_id",
     )
     .eq("id", id)
     .eq("company_id", ctx.company.id)
@@ -88,6 +88,7 @@ export async function POST(
         outreach_personalize_ai: campaign.outreach_personalize_ai,
         outreach_send_catalog: campaign.outreach_send_catalog,
         outreach_catalog_pdf_id: campaign.outreach_catalog_pdf_id,
+        regions: campaign.regions,
       },
       userId: ctx.userId,
       promoted: promo.promoted,

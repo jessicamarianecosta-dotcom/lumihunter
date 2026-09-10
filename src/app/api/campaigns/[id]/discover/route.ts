@@ -397,6 +397,7 @@ export async function POST(
           outreach_personalize_ai: campaign.outreach_personalize_ai,
           outreach_send_catalog: campaign.outreach_send_catalog,
           outreach_catalog_pdf_id: campaign.outreach_catalog_pdf_id,
+          regions,
         },
         userId: ctx.userId,
         promoted: promo.promoted,

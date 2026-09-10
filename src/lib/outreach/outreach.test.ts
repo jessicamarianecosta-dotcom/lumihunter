@@ -10,6 +10,7 @@ import {
   checkEligibility,
   classifyWhatsAppError,
   validateProspectForAutomaticOutreach,
+  regionMatches,
   type AutoOutreachInput,
 } from "./eligibility";
 import { looksLikeOptOut } from "./optout";
@@ -123,31 +124,29 @@ describe("enforceNoName — substitui a mensagem se vazou o nome", () => {
 
 describe("validateProspectForAutomaticOutreach — portão final do envio automático", () => {
   const ok: AutoOutreachInput = {
-    prospectable: true,
     individualBusiness: true,
     competitor: false,
     resultType: "business",
     regionConfirmed: true,
     whatsappVerified: true,
     whatsapp: "+5541999998888",
-    productMatchName: "Rótulos adesivos para embalagem",
-    buyerFit: 80,
-    productFit: 70,
     blocked: false,
     campaignActive: true,
     automaticEnabled: true,
     channel: "whatsapp",
     hasMessage: true,
     messageMentionsName: false,
-    catalogRequired: true,
-    catalogAvailable: true,
     alreadyInFlightOrDone: false,
     alreadyReplied: false,
+    // informativos
+    buyerFit: 80,
+    productFit: 70,
+    productMatchName: "Rótulos adesivos para embalagem",
   };
   it("aprova quando tudo passa", () => {
     expect(validateProspectForAutomaticOutreach(ok).ok).toBe(true);
   });
-  it("bloqueia cada requisito que falha", () => {
+  it("bloqueia SÓ os 7 gates obrigatórios + integridade da mensagem", () => {
     expect(validateProspectForAutomaticOutreach({ ...ok, automaticEnabled: false }).code).toBe("not_automatic");
     expect(validateProspectForAutomaticOutreach({ ...ok, campaignActive: false }).code).toBe("campaign_inactive");
     expect(validateProspectForAutomaticOutreach({ ...ok, individualBusiness: false }).code).toBe("not_a_business");
@@ -161,14 +160,20 @@ describe("validateProspectForAutomaticOutreach — portão final do envio autom�
     expect(validateProspectForAutomaticOutreach({ ...ok, alreadyInFlightOrDone: true }).code).toBe("already_queued");
     expect(validateProspectForAutomaticOutreach({ ...ok, hasMessage: false }).code).toBe("no_message");
     expect(validateProspectForAutomaticOutreach({ ...ok, messageMentionsName: true }).code).toBe("name_leak");
-    expect(validateProspectForAutomaticOutreach({ ...ok, catalogAvailable: false }).code).toBe("no_catalog");
   });
-  it("catálogo indisponível é ok se a campanha não exige", () => {
-    expect(validateProspectForAutomaticOutreach({ ...ok, catalogRequired: false, catalogAvailable: false }).ok).toBe(true);
+  it("NÃO bloqueia por buyer_fit, product_fit, produto do catálogo, segmento ou catálogo", () => {
+    expect(validateProspectForAutomaticOutreach({ ...ok, buyerFit: 0 }).ok).toBe(true);
+    expect(validateProspectForAutomaticOutreach({ ...ok, productFit: 0, productMatchName: null }).ok).toBe(true);
   });
-  it("buyer_fit / product_fit baixos NÃO bloqueiam o envio (são só prioridade)", () => {
-    expect(validateProspectForAutomaticOutreach({ ...ok, buyerFit: 40 }).ok).toBe(true);
-    expect(validateProspectForAutomaticOutreach({ ...ok, productMatchName: null, productFit: 0 }).ok).toBe(true);
+});
+
+describe("regionMatches — região por dado ESTRUTURADO (cidade/UF × regiões)", () => {
+  it("cidade do lead bate com a região da campanha", () => {
+    expect(regionMatches(["Curitiba"], "Curitiba", "PR")).toBe(true);
+    expect(regionMatches(["Curitiba e Região"], "Curitiba", null)).toBe(true);
+    expect(regionMatches(["Curitiba"], "São José dos Pinhais", "PR")).toBe(false);
+    expect(regionMatches(["Curitiba"], null, null)).toBe(false);
+    expect(regionMatches([], "Curitiba", "PR")).toBe(false);
   });
 });
 
@@ -223,8 +228,8 @@ describe("checkEligibility — checklist eliminatório", () => {
   it("campanha pausada → bloqueia", () => {
     expect(checkEligibility({ ...base, campaignStatus: "paused" }).code).toBe("campaign_inactive");
   });
-  it("catálogo exigido mas indisponível → bloqueia", () => {
-    expect(checkEligibility({ ...base, catalogAvailable: false }).code).toBe("no_catalog");
+  it("catálogo indisponível NÃO bloqueia — o texto sai, o PDF é best-effort", () => {
+    expect(checkEligibility({ ...base, catalogAvailable: false }).ok).toBe(true);
   });
 });
 
