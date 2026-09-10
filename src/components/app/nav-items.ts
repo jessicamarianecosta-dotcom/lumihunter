@@ -24,12 +24,18 @@ export interface NavItem {
 }
 
 export const NAV_ITEMS: NavItem[] = [
-  { href: "/app", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/campanhas", label: "Prospecção & Campanhas", icon: Megaphone },
+  { href: "/app", label: "Prospecção", icon: Megaphone },
+  { href: "/conversas", label: "Conversas", icon: MessagesSquare },
+  { href: "/produtos", label: "Catálogo", icon: Package },
+  { href: "/config", label: "Configurações", icon: Settings },
+];
+
+// Módulos avançados — fora do menu no MVP simples, mas as rotas continuam vivas.
+// Reative aqui quando precisar de CRM/ICP/agentes/relatórios de novo.
+export const HIDDEN_NAV_ITEMS: NavItem[] = [
+  { href: "/campanhas", label: "Campanhas (avançado)", icon: Megaphone },
   { href: "/leads", label: "Leads & CRM", icon: Users },
   { href: "/empresas", label: "Empresas", icon: Building2 },
-  { href: "/conversas", label: "Conversas", icon: MessagesSquare },
-  { href: "/produtos", label: "Produtos & Serviços", icon: Package },
   { href: "/conhecimento", label: "Base LumiLife", icon: BookOpen },
   { href: "/templates", label: "Templates de mensagem", icon: FileText },
   { href: "/icp", label: "Cliente ideal (ICP)", icon: Crosshair },
@@ -38,5 +44,5 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/relatorios", label: "Relatórios", icon: BarChart3 },
   { href: "/auditoria", label: "Auditoria", icon: ScrollText },
   { href: "/ajuda", label: "Central de Ajuda", icon: HelpCircle },
-  { href: "/config", label: "Configurações", icon: Settings },
+  { href: "/app", label: "Dashboard", icon: LayoutDashboard },
 ];
