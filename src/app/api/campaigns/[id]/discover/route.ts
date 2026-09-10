@@ -7,6 +7,7 @@ import { enforceAiQuota } from "@/lib/limits";
 import {
   runDiscovery,
   discoverySourcesConfigured,
+  primeTavilyKey,
   getCampaignProductContext,
   deriveBuyerProfile,
   TavilyError,
@@ -89,6 +90,7 @@ export async function POST(
     );
   }
 
+  await primeTavilyKey(admin, ctx.company.id);
   if (!discoverySourcesConfigured()) {
     return NextResponse.json(
       {

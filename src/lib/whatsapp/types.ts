@@ -28,6 +28,15 @@ export interface SendDocumentArgs {
   caption?: string;
 }
 
+export interface SendTemplateArgs {
+  to: string;
+  templateName: string;
+  languageCode: string;
+  bodyParams?: string[];
+  documentLink?: string;
+  documentFilename?: string;
+}
+
 export interface SendMessageResult {
   ok: boolean;
   /** Id da mensagem no provedor — vai para `messages.provider_message_id`. */
@@ -91,6 +100,12 @@ export interface WhatsAppProvider {
   sendDocument?(
     config: WhatsAppProviderConfig,
     args: SendDocumentArgs,
+  ): Promise<SendMessageResult>;
+
+  /** Envia mensagem de template aprovado (abordagem fria). Opcional por provider. */
+  sendTemplate?(
+    config: WhatsAppProviderConfig,
+    args: SendTemplateArgs,
   ): Promise<SendMessageResult>;
 
   /** Valida o handshake GET de verificação do webhook (quando o provedor exigir). */

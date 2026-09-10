@@ -97,6 +97,214 @@ export async function sendWhatsAppText(
   }
 }
 
+// ── Gestão de templates da WABA ────────────────────────────────────────
+
+export interface WhatsAppTemplateInfo {
+  name: string;
+  status: string; // APPROVED | PENDING | REJECTED | ...
+  category: string;
+  language: string;
+}
+
+interface WabaCreds {
+  token?: string;
+  wabaId?: string;
+  error?: string;
+}
+
+function resolveWabaCreds(args: {
+  accessToken?: string;
+  businessAccountId?: string;
+}): WabaCreds {
+  const token = args.accessToken || process.env.WHATSAPP_ACCESS_TOKEN;
+  const wabaId =
+    args.businessAccountId || process.env.WHATSAPP_BUSINESS_ACCOUNT_ID;
+  if (!token || !wabaId)
+    return { error: "Falta access_token ou business_account_id da WABA." };
+  return { token, wabaId };
+}
+
+export async function listWhatsAppTemplates(args: {
+  accessToken?: string;
+  businessAccountId?: string;
+}): Promise<
+  { ok: true; templates: WhatsAppTemplateInfo[] } | { ok: false; error: string }
+> {
+  const c = resolveWabaCreds(args);
+  if (c.error) return { ok: false, error: c.error };
+  try {
+    const res = await fetch(
+      `https://graph.facebook.com/${API_VERSION}/${c.wabaId}/message_templates?fields=name,status,category,language&limit=100`,
+      { headers: { Authorization: `Bearer ${c.token}` } },
+    );
+    const data = (await res.json()) as {
+      data?: { name: string; status: string; category: string; language: string }[];
+      error?: { message: string };
+    };
+    if (!res.ok || data.error)
+      return { ok: false, error: data.error?.message || `HTTP ${res.status}` };
+    return {
+      ok: true,
+      templates: (data.data ?? []).map((t) => ({
+        name: t.name,
+        status: t.status,
+        category: t.category,
+        language: t.language,
+      })),
+    };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+/**
+ * Cria (ou reenvia para revisão) o template padrão de prospecção da LumiLife.
+ * Header = documento (catálogo), corpo com copy fixa, rodapé com opt-out.
+ * Entra como PENDING até a Meta aprovar.
+ */
+export async function createProspeccaoTemplate(args: {
+  accessToken?: string;
+  businessAccountId?: string;
+  name?: string;
+  language?: string;
+  bodyText?: string;
+}): Promise<
+  { ok: true; id: string; status: string } | { ok: false; error: string }
+> {
+  const c = resolveWabaCreds(args);
+  if (c.error) return { ok: false, error: c.error };
+
+  const body =
+    args.bodyText?.trim() ||
+    "Olá! Tudo bem? Somos da LumiLife, gráfica e comunicação visual. " +
+      "Trabalhamos com materiais gráficos e personalizados — adesivos, rótulos, " +
+      "cartões, tags, banners, embalagens, canecas e brindes para empresas. " +
+      "Enviamos nosso catálogo para você conhecer nosso trabalho. " +
+      "Se precisar de algum material, é só responder por aqui.";
+
+  try {
+    const res = await fetch(
+      `https://graph.facebook.com/${API_VERSION}/${c.wabaId}/message_templates`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${c.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: args.name || "lumihunter_prospeccao",
+          language: args.language || "pt_BR",
+          category: "MARKETING",
+          components: [
+            { type: "BODY", text: body },
+            { type: "FOOTER", text: "Responda SAIR para não receber mais mensagens." },
+          ],
+        }),
+      },
+    );
+    const data = (await res.json()) as {
+      id?: string;
+      status?: string;
+      error?: { message: string; error_user_msg?: string };
+    };
+    if (!res.ok || data.error)
+      return {
+        ok: false,
+        error:
+          data.error?.error_user_msg || data.error?.message || `HTTP ${res.status}`,
+      };
+    return { ok: true, id: data.id ?? "", status: data.status ?? "PENDING" };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+interface SendTemplateArgs {
+  to: string;
+  /** nome do template aprovado na WABA */
+  templateName: string;
+  /** ex.: "pt_BR" */
+  languageCode: string;
+  /** variáveis do corpo ({{1}}, {{2}}…), na ordem */
+  bodyParams?: string[];
+  /** PDF de header (catálogo), opcional */
+  documentLink?: string;
+  documentFilename?: string;
+  phoneNumberId?: string;
+  accessToken?: string;
+}
+
+/**
+ * Envia uma mensagem de TEMPLATE (obrigatória para abordagem fria fora da
+ * janela de 24h). O template precisa estar APROVADO na WABA.
+ */
+export async function sendWhatsAppTemplate(
+  args: SendTemplateArgs,
+): Promise<WhatsAppSendResult> {
+  const to = args.to.replace(/\D/g, "");
+  const creds = resolveCreds(args);
+  if (creds.error) return { ok: false, error: creds.error };
+  if (creds.simulate)
+    return { ok: true, simulated: true, providerMessageId: `sim_wa_tpl_${Date.now()}` };
+  const { phoneNumberId, token } = creds;
+
+  const components: unknown[] = [];
+  if (args.documentLink) {
+    components.push({
+      type: "header",
+      parameters: [
+        {
+          type: "document",
+          document: {
+            link: args.documentLink,
+            filename: args.documentFilename || "catalogo.pdf",
+          },
+        },
+      ],
+    });
+  }
+  if (args.bodyParams && args.bodyParams.length) {
+    components.push({
+      type: "body",
+      parameters: args.bodyParams.map((t) => ({ type: "text", text: t })),
+    });
+  }
+
+  try {
+    const res = await fetch(
+      `https://graph.facebook.com/${API_VERSION}/${phoneNumberId}/messages`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to,
+          type: "template",
+          template: {
+            name: args.templateName,
+            language: { code: args.languageCode },
+            ...(components.length ? { components } : {}),
+          },
+        }),
+      },
+    );
+    const data = (await res.json()) as {
+      messages?: { id: string }[];
+      error?: { message: string };
+    };
+    if (!res.ok || data.error) {
+      return { ok: false, error: data.error?.message || `HTTP ${res.status}` };
+    }
+    return { ok: true, providerMessageId: data.messages?.[0]?.id };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
 interface SendDocumentArgs {
   to: string;
   /** URL pública HTTPS do PDF. */

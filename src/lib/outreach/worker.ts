@@ -8,7 +8,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import { normalizePhoneBR } from "@/lib/utils";
-import { sendMessage, sendDocument } from "@/lib/whatsapp/service";
+import { sendMessage, sendDocument, sendTemplate } from "@/lib/whatsapp/service";
 import { resolveCampaignCatalogPdf } from "./catalog";
 import { isBlocked } from "./optout";
 import { markConversationOutreach } from "./conversation";
@@ -55,7 +55,7 @@ export async function sendNextForCampaign(
   const { data: campaign } = await admin
     .from("campaigns")
     .select(
-      "id, company_id, name, channel, status, outreach_status, outreach_daily_limit, outreach_window_start, outreach_window_end, outreach_min_interval_seconds, outreach_timezone, outreach_send_catalog, outreach_catalog_pdf_id, outreach_consecutive_errors, outreach_last_sent_at, product_id",
+      "id, company_id, name, channel, status, outreach_status, outreach_daily_limit, outreach_window_start, outreach_window_end, outreach_min_interval_seconds, outreach_timezone, outreach_send_catalog, outreach_catalog_pdf_id, outreach_template_name, outreach_template_lang, outreach_consecutive_errors, outreach_last_sent_at, product_id",
     )
     .eq("id", campaignId)
     .maybeSingle();
@@ -252,8 +252,130 @@ export async function sendNextForCampaign(
     state: "sending",
   });
 
-  // ── Envia o texto ────────────────────────────────────────────────────
+  // ── Abordagem fria: Meta exige TEMPLATE aprovado como 1ª mensagem ─────
+  // Com template configurado: envia o template (abre a janela de 24h) e,
+  // em seguida, o texto personalizado. Sem template: envia texto direto
+  // (só funciona dentro da janela; fora dela a Meta recusa — erro real).
   const body = item.message_body!.trim();
+  const templateName = campaign.outreach_template_name?.trim();
+  if (templateName) {
+    const tpl = await sendTemplate(campaign.company_id, {
+      to: to!,
+      templateName,
+      languageCode: campaign.outreach_template_lang || "pt_BR",
+    });
+    if (!tpl.ok) {
+      const err = classifyWhatsAppError(tpl.error);
+      const canRetry = err.transient && item.attempt_count + 1 < MAX_ATTEMPTS;
+      await admin
+        .from("outreach_queue")
+        .update({
+          status: canRetry ? "ready" : "failed",
+          failed_at: canRetry ? null : now.toISOString(),
+          failure_code: err.code,
+          failure_reason: tpl.error ?? "falha no envio do template",
+        })
+        .eq("id", item.id);
+      if (!canRetry)
+        await markConversationOutreach(admin, {
+          companyId: campaign.company_id,
+          conversationId: conv!.id,
+          leadId: item.lead_id,
+          state: "failed",
+        });
+      return {
+        kind: "failed",
+        reason: tpl.error ?? "falha no envio do template",
+        retry: canRetry,
+        remaining: await remaining(),
+      };
+    }
+    await admin.from("messages").insert({
+      company_id: campaign.company_id,
+      conversation_id: conv!.id,
+      lead_id: item.lead_id,
+      campaign_id: campaignId,
+      channel: "whatsapp",
+      direction: "outbound",
+      status: "sent",
+      body: `[template: ${templateName}]`,
+      provider: "meta",
+      provider_message_id: tpl.providerMessageId ?? null,
+      sent_at: now.toISOString(),
+    });
+
+    // Template enviado = abordagem feita e janela de 24h aberta. Agora o
+    // catálogo (documento) e o texto personalizado entram como best-effort.
+    let tplCatalogSent = false;
+    if (catalog) {
+      const doc = await sendDocument(campaign.company_id, {
+        to: to!,
+        link: catalog.url,
+        filename: catalog.filename,
+      });
+      if (doc.ok) {
+        tplCatalogSent = true;
+        await admin.from("messages").insert({
+          company_id: campaign.company_id,
+          conversation_id: conv!.id,
+          lead_id: item.lead_id,
+          campaign_id: campaignId,
+          channel: "whatsapp",
+          direction: "outbound",
+          status: "sent",
+          body: `[catálogo] ${catalog.filename}`,
+          provider: "meta",
+          provider_message_id: doc.providerMessageId ?? null,
+          sent_at: new Date().toISOString(),
+        });
+      }
+    }
+    const followup = await sendMessage(campaign.company_id, { to: to!, body });
+    if (followup.ok) {
+      await admin.from("messages").insert({
+        company_id: campaign.company_id,
+        conversation_id: conv!.id,
+        lead_id: item.lead_id,
+        campaign_id: campaignId,
+        channel: "whatsapp",
+        direction: "outbound",
+        status: "sent",
+        body,
+        provider: "meta",
+        provider_message_id: followup.providerMessageId ?? null,
+        sent_at: new Date().toISOString(),
+      });
+    }
+    await markConversationOutreach(admin, {
+      companyId: campaign.company_id,
+      conversationId: conv!.id,
+      leadId: item.lead_id,
+      state: "sent",
+    });
+    await admin
+      .from("outreach_queue")
+      .update({
+        status: "sent",
+        sent_at: now.toISOString(),
+        provider_message_id: tpl.providerMessageId ?? null,
+        catalog_included: tplCatalogSent,
+        failure_code: null,
+        failure_reason: null,
+      })
+      .eq("id", item.id);
+    await admin
+      .from("campaigns")
+      .update({ outreach_last_sent_at: now.toISOString(), outreach_consecutive_errors: 0 })
+      .eq("id", campaignId);
+    return {
+      kind: "sent",
+      leadId: item.lead_id,
+      simulated: !!tpl.simulated,
+      remaining: await remaining(),
+    };
+  }
+
+  // ── Sem template: envia o texto direto (janela de 24h) ──────────────
   const textResult = await sendMessage(campaign.company_id, { to: to!, body });
 
   if (!textResult.ok) {

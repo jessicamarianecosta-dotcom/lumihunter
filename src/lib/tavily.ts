@@ -1,8 +1,9 @@
 /**
  * Integração REAL com a Tavily Search API (https://tavily.com).
  *
- * Camada server-side reutilizável. A chave vive SOMENTE em `TAVILY_API_KEY`
- * (variável de ambiente do servidor) — nunca no cliente, no banco ou na URL.
+ * Camada server-side reutilizável. A chave vem da variável `TAVILY_API_KEY`
+ * OU da integração `search` da empresa no banco (via `setTavilyKey`, chamado
+ * pelas rotas antes de rodar a descoberta) — nunca no cliente nem na URL.
  *
  * Em caso de erro, lança `TavilyError` com um `code` estável para a camada de
  * cima traduzir numa mensagem amigável. NUNCA devolve resultados fictícios como
@@ -66,8 +67,23 @@ export interface TavilySearchResponse {
   results: TavilyResult[];
 }
 
+/**
+ * Chave definida em runtime (integração `search` do banco). Complementa
+ * `TAVILY_API_KEY` quando a env não está no servidor. Setada pelas rotas
+ * de descoberta antes de chamar `tavilySearch`.
+ */
+let runtimeKey: string | null = null;
+
+export function setTavilyKey(key: string | null | undefined): void {
+  runtimeKey = key?.trim() || null;
+}
+
+function resolveTavilyKey(): string | null {
+  return process.env.TAVILY_API_KEY?.trim() || runtimeKey;
+}
+
 export function tavilyConfigured(): boolean {
-  return !!process.env.TAVILY_API_KEY;
+  return !!resolveTavilyKey();
 }
 
 interface TavilyOptions {
@@ -83,8 +99,12 @@ export async function tavilySearch(
   query: string,
   opts: TavilyOptions = {},
 ): Promise<TavilySearchResponse> {
-  const key = process.env.TAVILY_API_KEY;
-  if (!key) throw new TavilyError("not_configured", "TAVILY_API_KEY ausente");
+  const key = resolveTavilyKey();
+  if (!key)
+    throw new TavilyError(
+      "not_configured",
+      "Tavily sem chave (TAVILY_API_KEY ou integração 'search')",
+    );
 
   const {
     maxResults = 8,

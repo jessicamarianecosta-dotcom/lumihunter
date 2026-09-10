@@ -14,7 +14,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/lib/supabase/database.types";
-import { runDiscovery } from "./index";
+import { runDiscovery, primeTavilyKey } from "./index";
 import { heuristicBuyerProfile, getCampaignProductContext } from "./product-context";
 import type { CampaignBrief, DiscoveredCompany, QueryLogRow } from "./types";
 import { approveDiscoveries, enqueueOutreach } from "@/lib/outreach/promote";
@@ -238,6 +238,9 @@ export async function runScaleBatch(
     if (!run || run.scale_status !== "active") {
       return { ...last, done: true, reason: "not_active" };
     }
+
+    // chave do Tavily da integração `search` da empresa (fallback da env)
+    await primeTavilyKey(admin, run.company_id);
 
     const { data: campaign } = await admin
       .from("campaigns")

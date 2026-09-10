@@ -5,6 +5,7 @@ import type {
   ParsedWebhook,
   SendDocumentArgs,
   SendMessageResult,
+  SendTemplateArgs,
   SendTextMessageArgs,
   WebhookSignatureResult,
   WhatsAppProvider,
@@ -89,6 +90,23 @@ export async function sendMessage(
 ): Promise<SendMessageResult & { providerId: WhatsAppProviderId }> {
   const { providerId, provider, config } = await resolveActiveWhatsApp(companyId);
   const result = await provider.sendTextMessage(config, args);
+  return { ...result, providerId };
+}
+
+/** Envia mensagem de template aprovado (abordagem fria fora da janela de 24h). */
+export async function sendTemplate(
+  companyId: string,
+  args: SendTemplateArgs,
+): Promise<SendMessageResult & { providerId: WhatsAppProviderId }> {
+  const { providerId, provider, config } = await resolveActiveWhatsApp(companyId);
+  if (!provider.sendTemplate) {
+    return {
+      ok: false,
+      error: `O provedor "${providerId}" não suporta envio de template.`,
+      providerId,
+    };
+  }
+  const result = await provider.sendTemplate(config, args);
   return { ...result, providerId };
 }
 

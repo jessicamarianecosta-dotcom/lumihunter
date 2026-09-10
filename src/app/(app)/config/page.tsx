@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { SeedLumiLifeButton } from "@/components/app/seed-lumilife";
 import { AiTestConnectionButton } from "@/components/app/ai-test-connection";
 import { IntegrationTestButton } from "@/components/app/integration-test-button";
+import { WhatsAppTemplateManager } from "@/components/app/whatsapp-template-manager";
 import { HelpTip } from "@/components/help/help-tip";
 
 export const metadata: Metadata = { title: "Configurações" };
@@ -443,6 +444,8 @@ export default async function ConfigPage() {
                   </Button>
                   <IntegrationTestButton endpoint="/api/whatsapp/test" />
                 </form>
+
+                {whatsappProvider === "meta" && <WhatsAppTemplateManager />}
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>

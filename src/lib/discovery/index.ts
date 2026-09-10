@@ -33,6 +33,8 @@ export type {
   BuyerProfile,
 } from "./types";
 export { TavilyError, tavilyErrorMessage } from "@/lib/tavily";
+import { setTavilyKey } from "@/lib/tavily";
+import type { SupabaseClient } from "@supabase/supabase-js";
 export {
   getCampaignProductContext,
   deriveBuyerProfile,
@@ -44,6 +46,28 @@ const SOURCES: LeadSource[] = [tavilySource];
 
 export function discoverySourcesConfigured(): boolean {
   return SOURCES.some((s) => s.isConfigured());
+}
+
+/**
+ * Carrega a chave do Tavily da integração `search` da empresa (fallback quando
+ * `TAVILY_API_KEY` não está no servidor). Deve ser chamado pelas rotas ANTES
+ * de `discoverySourcesConfigured()` / `runDiscovery`.
+ */
+export async function primeTavilyKey(
+  admin: SupabaseClient,
+  companyId: string,
+): Promise<void> {
+  if (process.env.TAVILY_API_KEY?.trim()) return;
+  const { data } = await admin
+    .from("integrations")
+    .select("config")
+    .eq("company_id", companyId)
+    .eq("provider", "search")
+    .maybeSingle();
+  const cfg = (data?.config ?? {}) as { provider?: string; api_key?: string };
+  if ((cfg.provider ?? "tavily") === "tavily" && cfg.api_key) {
+    setTavilyKey(cfg.api_key);
+  }
 }
 
 interface RunArgs {

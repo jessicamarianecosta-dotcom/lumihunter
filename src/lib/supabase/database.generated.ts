@@ -473,6 +473,8 @@ export type Database = {
           outreach_personalize_ai: boolean
           outreach_send_catalog: boolean
           outreach_catalog_pdf_id: string | null
+          outreach_template_name: string | null
+          outreach_template_lang: string
           outreach_catalog_product_id: string | null
           outreach_consecutive_errors: number
           outreach_last_sent_at: string | null
@@ -514,6 +516,8 @@ export type Database = {
           outreach_personalize_ai?: boolean
           outreach_send_catalog?: boolean
           outreach_catalog_pdf_id?: string | null
+          outreach_template_name?: string | null
+          outreach_template_lang?: string
           outreach_catalog_product_id?: string | null
           outreach_consecutive_errors?: number
           outreach_last_sent_at?: string | null
@@ -555,6 +559,8 @@ export type Database = {
           outreach_personalize_ai?: boolean
           outreach_send_catalog?: boolean
           outreach_catalog_pdf_id?: string | null
+          outreach_template_name?: string | null
+          outreach_template_lang?: string
           outreach_catalog_product_id?: string | null
           outreach_consecutive_errors?: number
           outreach_last_sent_at?: string | null
