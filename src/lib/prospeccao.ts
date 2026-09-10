@@ -8,8 +8,52 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
+import { listWhatsAppTemplates } from "@/lib/integrations/whatsapp";
 
 type Admin = SupabaseClient<Database>;
+
+export const PROSPECCAO_TEMPLATE = "lumihunter_prospeccao";
+
+/**
+ * Sincroniza o template de prospecção com a campanha operacional.
+ * APPROVED na WABA → grava o nome na campanha (worker passa a usá-lo).
+ * Ausente/reprovado → desvincula. Best-effort, nunca lança.
+ */
+export async function syncApprovedProspeccaoTemplate(
+  admin: Admin,
+  companyId: string,
+): Promise<"approved" | "pending" | "missing" | "error"> {
+  try {
+    const { data } = await admin
+      .from("integrations")
+      .select("config")
+      .eq("company_id", companyId)
+      .eq("provider", "whatsapp")
+      .maybeSingle();
+    const cfg = (data?.config ?? {}) as {
+      access_token?: string;
+      business_account_id?: string;
+    };
+    const res = await listWhatsAppTemplates({
+      accessToken: cfg.access_token,
+      businessAccountId: cfg.business_account_id,
+    });
+    if (!res.ok) return "error";
+    const t = res.templates.find((x) => x.name === PROSPECCAO_TEMPLATE);
+    const approved = t?.status === "APPROVED";
+    await admin
+      .from("campaigns")
+      .update({
+        outreach_template_name: approved ? PROSPECCAO_TEMPLATE : null,
+        outreach_template_lang: t?.language || "pt_BR",
+      })
+      .eq("company_id", companyId)
+      .eq("name", OPERATIONAL_CAMPAIGN_NAME);
+    return approved ? "approved" : t ? "pending" : "missing";
+  } catch {
+    return "error";
+  }
+}
 
 export const OPERATIONAL_CAMPAIGN_NAME = "Prospecção LumiHunter";
 

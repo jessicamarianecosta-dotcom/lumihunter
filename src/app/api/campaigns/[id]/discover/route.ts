@@ -366,6 +366,14 @@ export async function POST(
     .eq("id", id)
     .eq("company_id", ctx.company.id);
 
+  // mantém o template vinculado se a Meta já aprovou (best-effort)
+  try {
+    const { syncApprovedProspeccaoTemplate } = await import("@/lib/prospeccao");
+    await syncApprovedProspeccaoTemplate(admin, ctx.company.id);
+  } catch {
+    /* não bloqueia a descoberta */
+  }
+
   // ── Prospecção AUTOMÁTICA: promove + enfileira sem aprovação manual ────
   let automatic:
     | { promoted: number; enqueued: number; skipped: number; nameLeaksFixed: number; catalog: string | null }

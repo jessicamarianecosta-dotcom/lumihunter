@@ -6,6 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import {
   getOrCreateOperationalCampaign,
   getProspeccaoSnapshot,
+  syncApprovedProspeccaoTemplate,
 } from "@/lib/prospeccao";
 import { listCatalogPdfs } from "@/lib/catalog/pdfs";
 import { DEFAULT_BASE_MESSAGE } from "@/lib/outreach/vars";
@@ -24,6 +25,8 @@ export default async function ProspeccaoPage() {
     ctx.company.id,
     ctx.userId,
   );
+  // mantém o template de prospecção vinculado assim que a Meta aprovar
+  const templateState = await syncApprovedProspeccaoTemplate(admin, ctx.company.id);
   const [snapshot, pdfs] = await Promise.all([
     getProspeccaoSnapshot(admin, ctx.company.id, campaign),
     listCatalogPdfs(admin, ctx.company.id).catch(() => []),
@@ -46,6 +49,14 @@ export default async function ProspeccaoPage() {
           {ctx.company.name}.
         </p>
       </div>
+
+      {templateState !== "approved" && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+          {templateState === "pending"
+            ? "O template de WhatsApp está em análise pela Meta. A pesquisa já funciona; a abordagem começa a enviar automaticamente assim que ele for aprovado (costuma sair em minutos a algumas horas)."
+            : "O template de WhatsApp para abordagem ainda não está pronto. Vá em Configurações → WhatsApp para criá-lo. A pesquisa de empresas já funciona normalmente."}
+        </div>
+      )}
 
       <Card>
         <CardContent className="p-5">
