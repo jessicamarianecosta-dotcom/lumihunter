@@ -1,12 +1,17 @@
 /**
  * WhatsApp Cloud API (oficial da Meta). Somente API oficial — nunca WhatsApp Web.
- * Habilite com WHATSAPP_ENABLED=true e preencha as credenciais no .env
- * (ou em integrations.config por empresa, em produção).
+ *
+ * A credencial vem de `integrations.config` por empresa (produção) ou das
+ * variáveis `WHATSAPP_*` do servidor. NÃO há fallback silencioso para
+ * "enviado (simulação)": se a credencial faltar ou for inválida, o envio
+ * FALHA com o erro real. Simulação só quando `WHATSAPP_SIMULATE=true`
+ * (uso local/testes) — nunca ative isso em produção.
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 const API_VERSION = process.env.WHATSAPP_API_VERSION || "v21.0";
-const ENABLED = process.env.WHATSAPP_ENABLED === "true";
+/** Simulação é OPT-IN explícito. Sem isso, credencial ausente → falha real. */
+const simulationAllowed = () => process.env.WHATSAPP_SIMULATE === "true";
 
 export interface WhatsAppSendResult {
   ok: boolean;
@@ -22,22 +27,44 @@ interface SendTextArgs {
   accessToken?: string;
 }
 
+/**
+ * Resolve credenciais (por empresa > env). Retorna `{ error }` quando algo
+ * essencial falta — o caller devolve isso como falha de envio, sem simular.
+ */
+function resolveCreds(args: { phoneNumberId?: string; accessToken?: string }): {
+  phoneNumberId?: string;
+  token?: string;
+  error?: string;
+  simulate?: boolean;
+} {
+  const phoneNumberId = args.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const token = args.accessToken || process.env.WHATSAPP_ACCESS_TOKEN;
+  const enabled =
+    process.env.WHATSAPP_ENABLED === "true" || !!args.accessToken || !!args.phoneNumberId;
+
+  const missing: string[] = [];
+  if (!phoneNumberId) missing.push("phone_number_id");
+  if (!token) missing.push("access_token");
+  if (!enabled && missing.length === 0) missing.push("WHATSAPP_ENABLED=true");
+
+  if (missing.length) {
+    if (simulationAllowed()) return { phoneNumberId, token, simulate: true };
+    return {
+      error: `WhatsApp não configurado no servidor (falta: ${missing.join(", ")}). Configure a integração oficial da Meta em /config.`,
+    };
+  }
+  return { phoneNumberId, token };
+}
+
 export async function sendWhatsAppText(
   args: SendTextArgs,
 ): Promise<WhatsAppSendResult> {
-  const phoneNumberId = args.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
-  const token = args.accessToken || process.env.WHATSAPP_ACCESS_TOKEN;
   const to = args.to.replace(/\D/g, "");
-  const enabled = ENABLED || !!args.accessToken;
-
-  if (!enabled || !phoneNumberId || !token) {
-    // Modo simulação: não envia, apenas retorna sucesso sintético.
-    return {
-      ok: true,
-      simulated: true,
-      providerMessageId: `sim_wa_${Date.now()}`,
-    };
-  }
+  const creds = resolveCreds(args);
+  if (creds.error) return { ok: false, error: creds.error };
+  if (creds.simulate)
+    return { ok: true, simulated: true, providerMessageId: `sim_wa_${Date.now()}` };
+  const { phoneNumberId, token } = creds;
 
   try {
     const res = await fetch(
@@ -85,14 +112,12 @@ interface SendDocumentArgs {
 export async function sendWhatsAppDocument(
   args: SendDocumentArgs,
 ): Promise<WhatsAppSendResult> {
-  const phoneNumberId = args.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
-  const token = args.accessToken || process.env.WHATSAPP_ACCESS_TOKEN;
   const to = args.to.replace(/\D/g, "");
-  const enabled = ENABLED || !!args.accessToken;
-
-  if (!enabled || !phoneNumberId || !token) {
+  const creds = resolveCreds(args);
+  if (creds.error) return { ok: false, error: creds.error };
+  if (creds.simulate)
     return { ok: true, simulated: true, providerMessageId: `sim_wa_doc_${Date.now()}` };
-  }
+  const { phoneNumberId, token } = creds;
 
   try {
     const res = await fetch(
