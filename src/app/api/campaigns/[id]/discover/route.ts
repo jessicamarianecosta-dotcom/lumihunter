@@ -376,7 +376,7 @@ export async function POST(
 
   // ── Prospecção AUTOMÁTICA: promove + enfileira sem aprovação manual ────
   let automatic:
-    | { promoted: number; enqueued: number; skipped: number; nameLeaksFixed: number; catalog: string | null }
+    | { promoted: number; enqueued: number; skipped: number; catalog: string | null }
     | null = null;
   if (
     campaign.outreach_automatic &&
@@ -428,7 +428,6 @@ export async function POST(
         promoted: promo.approved,
         enqueued: enq.enqueued,
         skipped: enq.skipped.length,
-        nameLeaksFixed: enq.nameLeaksFixed,
         catalog: enq.catalog,
       };
     } catch (e) {

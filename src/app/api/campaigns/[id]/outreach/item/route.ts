@@ -70,7 +70,7 @@ export async function POST(
       .maybeSingle();
     const { data: lead } = await admin
       .from("leads")
-      .select("id, name, city, state, segment, website, instagram")
+      .select("id, name, city, state, segment, description, website, instagram")
       .eq("id", item.lead_id)
       .eq("company_id", ctx.company.id)
       .maybeSingle();
@@ -109,6 +109,7 @@ export async function POST(
       contactName: null,
       website: lead.website,
       instagram: lead.instagram,
+      description: lead.description,
       evidence: Array.isArray(disc?.evidence) ? (disc!.evidence as string[]) : [],
       buyerFit: disc?.buyer_fit_score ?? null,
       productFit: disc?.product_fit_score ?? null,

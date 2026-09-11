@@ -93,7 +93,9 @@ export async function POST(
   // alvos aprovados (pending/sent) que ainda não têm item na fila
   const { data: targets } = await admin
     .from("campaign_targets")
-    .select("id, lead_id, leads(id, name, city, state, segment, whatsapp, phone, website, instagram)")
+    .select(
+      "id, lead_id, leads(id, name, city, state, segment, description, whatsapp, phone, website, instagram)",
+    )
     .eq("campaign_id", id)
     .eq("company_id", ctx.company.id)
     .in("status", ["pending", "sent", "replied"]);
@@ -110,6 +112,7 @@ export async function POST(
     city: string | null;
     state: string | null;
     segment: string | null;
+    description: string | null;
     whatsapp: string | null;
     phone: string | null;
     website: string | null;
@@ -142,6 +145,7 @@ export async function POST(
       contactName: null,
       website: l.website,
       instagram: l.instagram,
+      description: l.description,
       evidence: Array.isArray(d?.evidence) ? (d!.evidence as string[]) : [],
       buyerFit: d?.buyer_fit_score ?? null,
       productFit: d?.product_fit_score ?? null,

@@ -18,7 +18,7 @@ export interface AiIntegrationConfig {
 /** Modelo padrão por provedor quando a empresa ainda não configurou um. */
 const DEFAULT_MODEL: Record<AiProviderId, string> = {
   anthropic: "claude-haiku-4-5",
-  openai: "gpt-5.6-luna",
+  openai: "gpt-4o-mini",
 };
 
 export interface ResolvedAi {

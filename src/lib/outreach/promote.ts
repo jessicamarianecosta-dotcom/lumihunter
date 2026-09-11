@@ -3,7 +3,7 @@
  *
  *   descoberta qualificada (passou em TODOS os gates)
  *     → lead + campaign_target
- *     → mensagem gerada (anônima — nunca cita o nome da empresa)
+ *     → mensagem gerada por IA (uma chamada por lead, cita a empresa pelo nome)
  *     → validateProspectForAutomaticOutreach()
  *     → outreach_queue status "ready"  (sem aprovação manual)
  *
@@ -16,7 +16,6 @@ import { normalizePhoneBR, normalizeEmail } from "@/lib/utils";
 import { checkLeadQuota } from "@/lib/limits";
 import { hostOf } from "@/lib/discovery/extract";
 import { prepareMessages, type OutreachLead } from "./messages";
-import { mentionsCompanyName } from "./vars";
 import { resolveCampaignCatalogPdf } from "./catalog";
 import { isBlocked } from "./optout";
 import { validateProspectForAutomaticOutreach, regionMatches } from "./eligibility";
@@ -214,7 +213,6 @@ export interface EnqueueResult {
   enqueued: number;
   skipped: { leadId: string; reason: string }[];
   aiUsed: boolean;
-  nameLeaksFixed: number;
   catalog: string | null;
 }
 
@@ -260,7 +258,7 @@ export async function enqueueOutreach(
   },
 ): Promise<EnqueueResult> {
   const { campaign } = args;
-  const result: EnqueueResult = { enqueued: 0, skipped: [], aiUsed: false, nameLeaksFixed: 0, catalog: null };
+  const result: EnqueueResult = { enqueued: 0, skipped: [], aiUsed: false, catalog: null };
   if (args.promoted.length === 0) return result;
 
   // produto foco
@@ -303,11 +301,11 @@ export async function enqueueOutreach(
   const fresh = args.promoted.filter((pr) => !inQueue.has(pr.targetId));
   if (fresh.length === 0) return result;
 
-  // leads (whatsapp + segmento) para a geração de mensagem
+  // leads (whatsapp + segmento + descrição) para a geração de mensagem
   const leadIds = fresh.map((pr) => pr.leadId);
   const { data: leadRows } = await admin
     .from("leads")
-    .select("id, name, city, state, segment, whatsapp, phone, website, instagram")
+    .select("id, name, city, state, segment, description, whatsapp, phone, website, instagram")
     .in("id", leadIds)
     .eq("company_id", args.companyId);
   const leadById = new Map((leadRows ?? []).map((l) => [l.id, l]));
@@ -324,6 +322,7 @@ export async function enqueueOutreach(
       contactName: null,
       website: l?.website ?? d.website,
       instagram: l?.instagram ?? d.instagram,
+      description: l?.description ?? d.description,
       evidence: Array.isArray(d.evidence) ? (d.evidence as string[]) : [],
       buyerFit: d.buyer_fit_score,
       productFit: d.product_fit_score,
@@ -340,10 +339,8 @@ export async function enqueueOutreach(
     personalizeAi: campaign.outreach_personalize_ai,
     leads: outreachLeads,
     userId: args.userId,
-    anonymize: true,
   });
   result.aiUsed = prepared.some((m) => m.by === "ai");
-  result.nameLeaksFixed = prepared.filter((m) => m.nameLeakFixed).length;
   const msgByLead = new Map(prepared.map((m) => [m.leadId, m]));
 
   const now = new Date().toISOString();
@@ -377,7 +374,6 @@ export async function enqueueOutreach(
       automaticEnabled: args.auto ? campaign.outreach_automatic : true,
       channel: campaign.channel,
       hasMessage: !!message?.trim(),
-      messageMentionsName: mentionsCompanyName(message ?? "", l?.name ?? d.company_name),
       alreadyInFlightOrDone: false,
       alreadyReplied: (inbound ?? 0) > 0,
     });
@@ -482,7 +478,6 @@ export async function reprocessSkipped(
     enqueued: 0,
     skipped: [],
     aiUsed: false,
-    nameLeaksFixed: 0,
     catalog: null,
   };
   if (stuck.length === 0) return empty;

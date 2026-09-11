@@ -95,8 +95,7 @@ export function checkEligibility(i: EligibilityInput): EligibilityResult {
  *   7. não é duplicado / já abordado / já respondeu
  *
  * NÃO bloqueia por: buyer_fit, product_fit, score, IA, segmento nulo,
- * "evidence textual", catálogo. A mensagem continua sendo anônima
- * (sem o nome da empresa) — isso é regra do conteúdo, verificada aqui.
+ * "evidence textual", catálogo.
  */
 export interface AutoOutreachInput {
   individualBusiness: boolean;
@@ -110,7 +109,6 @@ export interface AutoOutreachInput {
   automaticEnabled: boolean;
   channel: string;
   hasMessage: boolean;
-  messageMentionsName: boolean;
   alreadyInFlightOrDone: boolean;
   alreadyReplied: boolean;
   /** informativos — registrados, nunca bloqueiam. */
@@ -153,8 +151,6 @@ export function validateProspectForAutomaticOutreach(
   // integridade da mensagem (não é gate de qualificação)
   if (!i.hasMessage)
     return { ok: false, code: "no_message", reason: "Nenhuma mensagem preparada." };
-  if (i.messageMentionsName)
-    return { ok: false, code: "name_leak", reason: "A mensagem citou o nome da empresa." };
   return { ok: true };
 }
 

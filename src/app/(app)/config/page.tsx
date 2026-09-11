@@ -332,7 +332,7 @@ export default async function ConfigPage() {
   const aiConfig = aiIntegration?.config ?? {};
   const activeAiProvider: AiProviderId = aiConfig.active_provider ?? "anthropic";
   const anthropicModel = aiConfig.anthropic?.model ?? "claude-haiku-4-5";
-  const openaiModel = aiConfig.openai?.model ?? "gpt-5.6-luna";
+  const openaiModel = aiConfig.openai?.model ?? "gpt-4o-mini";
   const anthropicKeyMasked = maskApiKey(aiConfig.anthropic?.api_key);
   const openaiKeyMasked = maskApiKey(aiConfig.openai?.api_key);
   const anthropicConfigured = !!aiConfig.anthropic?.api_key || !!process.env.ANTHROPIC_API_KEY;

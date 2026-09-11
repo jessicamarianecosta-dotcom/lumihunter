@@ -78,7 +78,6 @@ export async function POST(
       acc[s.reason] = (acc[s.reason] ?? 0) + 1;
       return acc;
     }, {}),
-    nameLeaksFixed: result.nameLeaksFixed,
     catalog: result.catalog,
   });
 }
