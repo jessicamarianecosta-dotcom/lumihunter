@@ -268,9 +268,13 @@ export async function sendNextForCampaign(
   });
 
   // ── Abordagem fria: Meta exige TEMPLATE aprovado como 1ª mensagem ─────
-  // Com template configurado: envia o template (abre a janela de 24h) e,
-  // em seguida, o texto personalizado. Sem template: envia texto direto
-  // (só funciona dentro da janela; fora dela a Meta recusa — erro real).
+  // Sem template ainda enviado, a Meta NÃO abre janela de conversa livre —
+  // só depois que o próprio destinatário responder. Então aqui só enviamos
+  // o template; o catálogo + a mensagem personalizada saem depois, quando o
+  // lead responder (`sendPendingOutreachFollowup`, chamado pelo webhook de
+  // inbound) — antes disso eles seriam recusados pela Meta ("re-engagement
+  // message" / janela de 24h fechada), mesmo que o template tenha sido
+  // aceito.
   const body = item.message_body!.trim();
   const templateName = campaign.outreach_template_name?.trim();
   if (templateName) {
@@ -318,49 +322,6 @@ export async function sendNextForCampaign(
       provider_message_id: tpl.providerMessageId ?? null,
       sent_at: now.toISOString(),
     });
-
-    // Template enviado = abordagem feita e janela de 24h aberta. Agora o
-    // catálogo (documento) e o texto personalizado entram como best-effort.
-    let tplCatalogSent = false;
-    if (catalog) {
-      const doc = await sendDocument(campaign.company_id, {
-        to: to!,
-        link: catalog.url,
-        filename: catalog.filename,
-      });
-      if (doc.ok) {
-        tplCatalogSent = true;
-        await admin.from("messages").insert({
-          company_id: campaign.company_id,
-          conversation_id: conv!.id,
-          lead_id: item.lead_id,
-          campaign_id: campaignId,
-          channel: "whatsapp",
-          direction: "outbound",
-          status: "sent",
-          body: `[catálogo] ${catalog.filename}`,
-          provider: "meta",
-          provider_message_id: doc.providerMessageId ?? null,
-          sent_at: new Date().toISOString(),
-        });
-      }
-    }
-    const followup = await sendMessage(campaign.company_id, { to: to!, body });
-    if (followup.ok) {
-      await admin.from("messages").insert({
-        company_id: campaign.company_id,
-        conversation_id: conv!.id,
-        lead_id: item.lead_id,
-        campaign_id: campaignId,
-        channel: "whatsapp",
-        direction: "outbound",
-        status: "sent",
-        body,
-        provider: "meta",
-        provider_message_id: followup.providerMessageId ?? null,
-        sent_at: new Date().toISOString(),
-      });
-    }
     await markConversationOutreach(admin, {
       companyId: campaign.company_id,
       conversationId: conv!.id,
@@ -373,7 +334,8 @@ export async function sendNextForCampaign(
         status: "sent",
         sent_at: now.toISOString(),
         provider_message_id: tpl.providerMessageId ?? null,
-        catalog_included: tplCatalogSent,
+        catalog_included: false,
+        followup_sent: false,
         failure_code: null,
         failure_reason: null,
       })
@@ -477,6 +439,7 @@ export async function sendNextForCampaign(
       provider_message_id: textResult.providerMessageId ?? null,
       catalog_message_id: catalogMessageId,
       catalog_included: !!catalogMessageId,
+      followup_sent: true,
       failure_code: null,
       failure_reason: null,
     })
@@ -524,6 +487,159 @@ export async function sendNextForCampaign(
     simulated: !!textResult.simulated,
     remaining: await remaining(),
   };
+}
+
+/**
+ * Envia o catálogo + a mensagem personalizada que ficaram pendentes depois
+ * de um template de abordagem fria. A Meta só abre a janela de 24h de
+ * conversa livre quando o PRÓPRIO lead responde — enviar o catálogo
+ * (documento) ou a mensagem de texto antes disso é recusado ("re-engagement
+ * message"), mesmo o template tendo sido aceito. Por isso o worker só envia
+ * o template na hora; isto aqui é chamado pelo webhook assim que chega a
+ * primeira resposta do lead. Idempotente via `followup_sent`.
+ */
+export async function sendPendingOutreachFollowup(
+  admin: Admin,
+  leadId: string,
+  companyId: string,
+): Promise<void> {
+  const { data: rows } = await admin
+    .from("outreach_queue")
+    .select("id, campaign_id, message_body")
+    .eq("lead_id", leadId)
+    .eq("company_id", companyId)
+    .in("status", ["sent", "delivered", "read"])
+    .eq("followup_sent", false);
+  if (!rows?.length) return;
+
+  const { data: lead } = await admin
+    .from("leads")
+    .select("id, whatsapp, phone")
+    .eq("id", leadId)
+    .eq("company_id", companyId)
+    .maybeSingle();
+  const to = normalizePhoneBR(lead?.whatsapp ?? lead?.phone ?? null);
+  if (!to) return;
+
+  const { data: conv } = await admin
+    .from("conversations")
+    .select("id")
+    .eq("lead_id", leadId)
+    .eq("channel", "whatsapp")
+    .maybeSingle();
+  if (!conv) return; // o handler de inbound já garante que existe
+
+  for (const item of rows) {
+    const { data: campaign } = await admin
+      .from("campaigns")
+      .select(
+        "id, name, outreach_send_catalog, outreach_catalog_pdf_id, outreach_template_name, product_id",
+      )
+      .eq("id", item.campaign_id)
+      .maybeSingle();
+    if (!campaign) continue;
+
+    // sem template, catálogo + texto já foram tentados no mesmo tick —
+    // não há nada pendente aqui, só fecha a marca para não reprocessar.
+    if (!campaign.outreach_template_name) {
+      await admin.from("outreach_queue").update({ followup_sent: true }).eq("id", item.id);
+      continue;
+    }
+
+    const catalog = campaign.outreach_send_catalog
+      ? await resolveCampaignCatalogPdf(
+          admin,
+          companyId,
+          {
+            outreach_catalog_pdf_id: campaign.outreach_catalog_pdf_id,
+            product_id: campaign.product_id,
+          },
+          campaign.name,
+        )
+      : null;
+
+    let catalogMessageId: string | null = null;
+    if (catalog) {
+      const doc = await sendDocument(companyId, {
+        to,
+        link: catalog.url,
+        filename: catalog.filename,
+      });
+      if (doc.ok) {
+        catalogMessageId = doc.providerMessageId ?? null;
+        await admin.from("messages").insert({
+          company_id: companyId,
+          conversation_id: conv.id,
+          lead_id: leadId,
+          campaign_id: campaign.id,
+          channel: "whatsapp",
+          direction: "outbound",
+          status: "sent",
+          body: `[catálogo] ${catalog.filename}`,
+          provider: "meta",
+          provider_message_id: catalogMessageId,
+          sent_at: new Date().toISOString(),
+        });
+      } else {
+        console.error("[outreach] catálogo pós-resposta falhou:", doc.error);
+        await admin.from("messages").insert({
+          company_id: companyId,
+          conversation_id: conv.id,
+          lead_id: leadId,
+          campaign_id: campaign.id,
+          channel: "whatsapp",
+          direction: "outbound",
+          status: "failed",
+          body: `[catálogo] ${catalog.filename}`,
+          provider: "meta",
+          error: doc.error ?? "falha ao enviar o catálogo",
+        });
+      }
+    }
+
+    const body = item.message_body?.trim();
+    if (body) {
+      const followup = await sendMessage(companyId, { to, body });
+      if (followup.ok) {
+        await admin.from("messages").insert({
+          company_id: companyId,
+          conversation_id: conv.id,
+          lead_id: leadId,
+          campaign_id: campaign.id,
+          channel: "whatsapp",
+          direction: "outbound",
+          status: "sent",
+          body,
+          provider: "meta",
+          provider_message_id: followup.providerMessageId ?? null,
+          sent_at: new Date().toISOString(),
+        });
+      } else {
+        console.error("[outreach] mensagem pós-resposta falhou:", followup.error);
+        await admin.from("messages").insert({
+          company_id: companyId,
+          conversation_id: conv.id,
+          lead_id: leadId,
+          campaign_id: campaign.id,
+          channel: "whatsapp",
+          direction: "outbound",
+          status: "failed",
+          body,
+          provider: "meta",
+          error: followup.error ?? "falha ao enviar a mensagem",
+        });
+      }
+    }
+
+    await admin
+      .from("outreach_queue")
+      .update({
+        followup_sent: true,
+        catalog_included: !!catalogMessageId,
+        catalog_message_id: catalogMessageId,
+      })
+      .eq("id", item.id);
+  }
 }
 
 /** Para o cron: drena as campanhas com fila ativa, respeitando o intervalo. */

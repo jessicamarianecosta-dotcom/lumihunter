@@ -28,6 +28,13 @@ export interface SendDocumentArgs {
   caption?: string;
 }
 
+export interface SendImageArgs {
+  to: string;
+  /** URL pública HTTPS da imagem (jpeg/png). */
+  link: string;
+  caption?: string;
+}
+
 export interface SendTemplateArgs {
   to: string;
   templateName: string;
@@ -61,6 +68,8 @@ export interface InboundStatus {
   providerMessageId: string;
   status: WhatsAppMessageStatus;
   timestamp: string;
+  /** motivo real quando status="failed" (a Meta manda em `statuses[].errors[]`). */
+  error?: { code?: number; title?: string; message?: string };
 }
 
 export interface ParsedWebhook {
@@ -100,6 +109,12 @@ export interface WhatsAppProvider {
   sendDocument?(
     config: WhatsAppProviderConfig,
     args: SendDocumentArgs,
+  ): Promise<SendMessageResult>;
+
+  /** Envia uma imagem (jpeg/png) por URL pública. Opcional por provider. */
+  sendImage?(
+    config: WhatsAppProviderConfig,
+    args: SendImageArgs,
   ): Promise<SendMessageResult>;
 
   /** Envia mensagem de template aprovado (abordagem fria). Opcional por provider. */

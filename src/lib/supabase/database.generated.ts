@@ -2390,6 +2390,7 @@ export type Database = {
           failed_at: string | null
           failure_code: string | null
           failure_reason: string | null
+          followup_sent: boolean
           id: string
           last_attempt_at: string | null
           lead_id: string
@@ -2417,6 +2418,7 @@ export type Database = {
           failed_at?: string | null
           failure_code?: string | null
           failure_reason?: string | null
+          followup_sent?: boolean
           id?: string
           last_attempt_at?: string | null
           lead_id: string
@@ -2444,6 +2446,7 @@ export type Database = {
           failed_at?: string | null
           failure_code?: string | null
           failure_reason?: string | null
+          followup_sent?: boolean
           id?: string
           last_attempt_at?: string | null
           lead_id?: string

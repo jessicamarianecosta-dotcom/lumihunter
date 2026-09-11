@@ -11,6 +11,7 @@ import {
   markConversationOutreach,
   queueStatusToState,
 } from "@/lib/outreach/conversation";
+import { sendPendingOutreachFollowup } from "@/lib/outreach/worker";
 
 const OUTREACH_STATUS_COLUMN: Record<string, string> = {
   delivered: "delivered_at",
@@ -72,12 +73,20 @@ export async function POST(req: NextRequest) {
   // ── Atualizações de status (entregue/lido/falhou) ────────────────────────
   for (const s of statuses) {
     const ts = new Date(Number(s.timestamp) * 1000 || Date.now()).toISOString();
+    const errorText = s.error
+      ? `${s.error.title ?? "Falha no envio"}${s.error.message && s.error.message !== s.error.title ? `: ${s.error.message}` : ""}`
+      : null;
+    if (s.status === "failed" && errorText) {
+      console.error(`[whatsapp/webhook] mensagem ${s.providerMessageId} falhou: ${errorText}`);
+    }
     const tsPatch =
       s.status === "delivered"
         ? { delivered_at: ts }
         : s.status === "read"
           ? { read_at: ts }
-          : {};
+          : s.status === "failed"
+            ? { error: errorText }
+            : {};
     const { data: updatedMsgs, error } = await admin
       .from("messages")
       .update({ status: s.status, ...tsPatch })
@@ -96,7 +105,12 @@ export async function POST(req: NextRequest) {
           ? { status: s.status, delivered_at: ts }
           : tsCol === "read_at"
             ? { status: s.status, read_at: ts }
-            : { status: s.status, failed_at: ts };
+            : {
+                status: s.status,
+                failed_at: ts,
+                failure_code: s.error?.code ? String(s.error.code) : "meta_async_failure",
+                failure_reason: errorText,
+              };
       await admin
         .from("outreach_queue")
         .update(patch)
@@ -229,6 +243,20 @@ export async function POST(req: NextRequest) {
       .eq("id", lead.id)
       .in("status", ["new", "qualified", "contacted"]);
 
+    const optedOutEarly = looksLikeOptOut(msg.text);
+
+    // a 1ª resposta do lead é o que abre a janela de 24h de conversa livre —
+    // só agora dá pra mandar o catálogo/mensagem que ficaram pendentes de um
+    // template de abordagem fria (ver sendPendingOutreachFollowup). Se o
+    // lead já pediu pra sair, não manda mais nada.
+    if (!optedOutEarly) {
+      try {
+        await sendPendingOutreachFollowup(admin, lead.id, companyId);
+      } catch (e) {
+        console.error("[whatsapp/webhook] sendPendingOutreachFollowup falhou:", e);
+      }
+    }
+
     // Fase 2: o lead respondeu → parar novos contatos automáticos para ele
     await admin
       .from("outreach_queue")
@@ -242,20 +270,18 @@ export async function POST(req: NextRequest) {
       .eq("lead_id", lead.id)
       .not("status", "in", "(replied,opted_out)");
 
-    const optedOut = looksLikeOptOut(msg.text);
-
     // a conversa passa a "precisa de atendimento humano" (ou opt-out)
     await markConversationOutreach(admin, {
       companyId,
       conversationId: conversation.id,
       leadId: lead.id,
-      state: optedOut ? "opted_out" : "replied",
+      state: optedOutEarly ? "opted_out" : "replied",
       at: new Date(Number(msg.timestamp) * 1000 || Date.now()).toISOString(),
       preview: msg.text,
     });
 
     // opt-out explícito → bloqueio definitivo (vale para qualquer campanha)
-    if (optedOut) {
+    if (optedOutEarly) {
       await recordOptOut(admin, {
         companyId,
         leadId: lead.id,

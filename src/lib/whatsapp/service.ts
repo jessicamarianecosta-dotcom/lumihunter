@@ -4,6 +4,7 @@ import { ycloudProvider } from "./providers/ycloud";
 import type {
   ParsedWebhook,
   SendDocumentArgs,
+  SendImageArgs,
   SendMessageResult,
   SendTemplateArgs,
   SendTextMessageArgs,
@@ -124,6 +125,23 @@ export async function sendDocument(
     };
   }
   const result = await provider.sendDocument(config, args);
+  return { ...result, providerId };
+}
+
+/** Envia uma imagem (jpeg/png). Retorna erro se o provider não suporta. */
+export async function sendImage(
+  companyId: string,
+  args: SendImageArgs,
+): Promise<SendMessageResult & { providerId: WhatsAppProviderId }> {
+  const { providerId, provider, config } = await resolveActiveWhatsApp(companyId);
+  if (!provider.sendImage) {
+    return {
+      ok: false,
+      error: `O provedor "${providerId}" não suporta envio de imagem.`,
+      providerId,
+    };
+  }
+  const result = await provider.sendImage(config, args);
   return { ...result, providerId };
 }
 

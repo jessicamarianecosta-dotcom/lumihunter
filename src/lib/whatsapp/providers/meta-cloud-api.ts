@@ -8,6 +8,7 @@
 import {
   sendWhatsAppText,
   sendWhatsAppDocument,
+  sendWhatsAppImage,
   sendWhatsAppTemplate,
   verifyWebhook,
   verifyMetaWebhookSignature,
@@ -17,6 +18,7 @@ import {
 import type {
   ParsedWebhook,
   SendDocumentArgs,
+  SendImageArgs,
   SendMessageResult,
   SendTemplateArgs,
   SendTextMessageArgs,
@@ -48,6 +50,19 @@ export const metaCloudApiProvider: WhatsAppProvider = {
       to: args.to,
       link: args.link,
       filename: args.filename,
+      caption: args.caption,
+      phoneNumberId: config.phone_number_id,
+      accessToken: config.access_token,
+    });
+  },
+
+  async sendImage(
+    config: WhatsAppProviderConfig,
+    args: SendImageArgs,
+  ): Promise<SendMessageResult> {
+    return sendWhatsAppImage({
+      to: args.to,
+      link: args.link,
       caption: args.caption,
       phoneNumberId: config.phone_number_id,
       accessToken: config.access_token,
@@ -94,6 +109,7 @@ export const metaCloudApiProvider: WhatsAppProvider = {
         providerMessageId: s.waMessageId,
         status: s.status,
         timestamp: s.timestamp,
+        error: s.error,
       })),
     };
   },

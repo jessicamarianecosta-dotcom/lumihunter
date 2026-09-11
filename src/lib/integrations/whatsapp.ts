@@ -362,6 +362,60 @@ export async function sendWhatsAppDocument(
   }
 }
 
+interface SendImageArgs {
+  to: string;
+  /** URL pública HTTPS da imagem (jpeg/png — a Meta Cloud API não aceita webp como "image"). */
+  link: string;
+  caption?: string;
+  phoneNumberId?: string;
+  accessToken?: string;
+}
+
+/** Envia uma imagem pelo WhatsApp Cloud API. */
+export async function sendWhatsAppImage(
+  args: SendImageArgs,
+): Promise<WhatsAppSendResult> {
+  const to = args.to.replace(/\D/g, "");
+  const creds = resolveCreds(args);
+  if (creds.error) return { ok: false, error: creds.error };
+  if (creds.simulate)
+    return { ok: true, simulated: true, providerMessageId: `sim_wa_img_${Date.now()}` };
+  const { phoneNumberId, token } = creds;
+
+  try {
+    const res = await fetch(
+      `https://graph.facebook.com/${API_VERSION}/${phoneNumberId}/messages`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to,
+          type: "image",
+          image: {
+            link: args.link,
+            ...(args.caption ? { caption: args.caption } : {}),
+          },
+        }),
+      },
+    );
+    const data = (await res.json()) as {
+      messages?: { id: string }[];
+      error?: { message: string; code?: number };
+    };
+    if (!res.ok || data.error) {
+      return { ok: false, error: data.error?.message || `HTTP ${res.status}` };
+    }
+    return { ok: true, providerMessageId: data.messages?.[0]?.id };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
 export type WebhookSignatureResult = "valid" | "invalid" | "unconfigured";
 
 /**
@@ -466,6 +520,7 @@ export interface InboundWhatsAppStatus {
   waMessageId: string;
   status: WhatsAppMessageStatus;
   timestamp: string;
+  error?: { code?: number; title?: string; message?: string };
 }
 
 const STATUS_MAP: Record<string, WhatsAppMessageStatus> = {
@@ -485,10 +540,27 @@ export function parseStatuses(payload: unknown): InboundWhatsAppStatus[] {
       const value = (change as { value?: Record<string, unknown> })?.value ?? {};
       const statuses = (value.statuses as unknown[]) ?? [];
       for (const s of statuses) {
-        const st = s as { id: string; status: string; timestamp: string };
+        const st = s as {
+          id: string;
+          status: string;
+          timestamp: string;
+          errors?: { code?: number; title?: string; message?: string; error_data?: { details?: string } }[];
+        };
         const mapped = STATUS_MAP[st.status];
         if (!mapped) continue; // status desconhecido — ignora sem quebrar
-        out.push({ waMessageId: st.id, status: mapped, timestamp: st.timestamp });
+        const err = st.errors?.[0];
+        out.push({
+          waMessageId: st.id,
+          status: mapped,
+          timestamp: st.timestamp,
+          error: err
+            ? {
+                code: err.code,
+                title: err.title,
+                message: err.error_data?.details || err.message || err.title,
+              }
+            : undefined,
+        });
       }
     }
   }

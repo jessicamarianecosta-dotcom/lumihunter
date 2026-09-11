@@ -38,11 +38,30 @@ export default async function ConversaPage({
     state: string | null;
   } | null;
 
-  const { data: messages } = await supabase
+  const { data: messagesRaw } = await supabase
     .from("messages")
-    .select("id, direction, body, channel, status, created_at")
+    .select("id, direction, body, channel, status, error, attachments, created_at")
     .eq("conversation_id", id)
     .order("created_at", { ascending: true });
+
+  // assina uma URL fresca (o bucket "attachments" é privado) para cada
+  // anexo — nunca expõe o storage direto ao navegador.
+  const messages = await Promise.all(
+    (messagesRaw ?? []).map(async (m) => {
+      const rawAttachments = Array.isArray(m.attachments)
+        ? (m.attachments as { kind: string; path: string; filename: string; mimeType: string }[])
+        : [];
+      const attachments = await Promise.all(
+        rawAttachments.map(async (a) => {
+          const { data: signed } = await supabase.storage
+            .from("attachments")
+            .createSignedUrl(a.path, 3600);
+          return { ...a, url: signed?.signedUrl ?? null };
+        }),
+      );
+      return { ...m, attachments };
+    }),
+  );
 
   const campaignName = conv.outreach_campaign_id
     ? (
@@ -141,8 +160,9 @@ export default async function ConversaPage({
       <ConversationThread
         conversationId={conv.id}
         leadId={conv.lead_id}
+        companyId={ctx.company.id}
         channel={conv.channel === "email" ? "email" : "whatsapp"}
-        messages={messages ?? []}
+        messages={messages}
       />
     </div>
   );
