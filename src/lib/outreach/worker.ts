@@ -497,18 +497,27 @@ export async function sendNextForCampaign(
  * message"), mesmo o template tendo sido aceito. Por isso o worker só envia
  * o template na hora; isto aqui é chamado pelo webhook assim que chega a
  * primeira resposta do lead. Idempotente via `followup_sent`.
+ *
+ * `fromStatuses` — de que status da fila vale buscar pendências:
+ *  - `["sent","delivered","read"]` (padrão): chamada AO VIVO pelo webhook,
+ *    no exato momento em que a 1ª resposta chega (antes do status virar
+ *    "replied" mais abaixo no mesmo handler).
+ *  - `["replied"]`: usado pelo backfill (`backfillPendingOutreachFollowups`)
+ *    para consertar leads que já responderam ANTES deste fix existir — a
+ *    janela já está aberta pra eles, só nunca tentamos entregar de novo.
  */
 export async function sendPendingOutreachFollowup(
   admin: Admin,
   leadId: string,
   companyId: string,
+  fromStatuses: string[] = ["sent", "delivered", "read"],
 ): Promise<void> {
   const { data: rows } = await admin
     .from("outreach_queue")
     .select("id, campaign_id, message_body")
     .eq("lead_id", leadId)
     .eq("company_id", companyId)
-    .in("status", ["sent", "delivered", "read"])
+    .in("status", fromStatuses)
     .eq("followup_sent", false);
   if (!rows?.length) return;
 
@@ -640,6 +649,37 @@ export async function sendPendingOutreachFollowup(
       })
       .eq("id", item.id);
   }
+}
+
+/**
+ * Conserta leads que já responderam a um template de abordagem fria ANTES
+ * de `sendPendingOutreachFollowup` existir — a janela de 24h já está
+ * aberta (eles responderam), só nunca chegamos a mandar o catálogo/texto.
+ * Chamado a cada execução do cron (`/api/cron/outreach`) — idempotente e
+ * barato quando não há nada pendente.
+ */
+export async function backfillPendingOutreachFollowups(
+  admin: Admin,
+): Promise<{ leads: number }> {
+  const { data: rows } = await admin
+    .from("outreach_queue")
+    .select("lead_id, company_id")
+    .eq("status", "replied")
+    .eq("followup_sent", false)
+    .limit(100);
+
+  const seen = new Set<string>();
+  for (const r of rows ?? []) {
+    const key = `${r.company_id}:${r.lead_id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    try {
+      await sendPendingOutreachFollowup(admin, r.lead_id, r.company_id, ["replied"]);
+    } catch (e) {
+      console.error("[outreach] backfill de followup falhou:", r.lead_id, e);
+    }
+  }
+  return { leads: seen.size };
 }
 
 /** Para o cron: drena as campanhas com fila ativa, respeitando o intervalo. */

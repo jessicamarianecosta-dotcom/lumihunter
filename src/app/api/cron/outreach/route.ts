@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { drainRunningCampaigns } from "@/lib/outreach/worker";
+import { drainRunningCampaigns, backfillPendingOutreachFollowups } from "@/lib/outreach/worker";
 
 export const maxDuration = 300;
 
@@ -15,6 +15,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "não autorizado" }, { status: 401 });
   }
   const admin = createAdminClient();
-  const result = await drainRunningCampaigns(admin, { budgetMs: 260_000 });
-  return NextResponse.json(result);
+  const result = await drainRunningCampaigns(admin, { budgetMs: 250_000 });
+  const followupBackfill = await backfillPendingOutreachFollowups(admin);
+  return NextResponse.json({ ...result, followupBackfill });
 }
