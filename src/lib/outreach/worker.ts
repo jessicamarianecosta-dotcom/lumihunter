@@ -25,6 +25,19 @@ type Admin = SupabaseClient<Database>;
 const CIRCUIT_BREAKER = 5;
 const MAX_ATTEMPTS = 3;
 const SENT_STATUSES = ["sent", "delivered", "read", "replied"];
+/** item travado em "sending" além disso tempo (função serverless morreu no meio) volta pra "ready". */
+const STALE_SENDING_MS = 10 * 60 * 1000;
+
+/** Recupera itens travados em "sending" (ex.: função serverless encerrada no meio do envio). */
+async function recoverStaleSending(admin: Admin, campaignId: string): Promise<void> {
+  const cutoff = new Date(Date.now() - STALE_SENDING_MS).toISOString();
+  await admin
+    .from("outreach_queue")
+    .update({ status: "ready" })
+    .eq("campaign_id", campaignId)
+    .eq("status", "sending")
+    .lt("last_attempt_at", cutoff);
+}
 
 export type TickOutcome =
   | { kind: "sent"; leadId: string; simulated: boolean; remaining: number }
@@ -135,6 +148,8 @@ export async function sendNextForCampaign(
       dailyLimit: campaign.outreach_daily_limit,
     };
   }
+
+  await recoverStaleSending(admin, campaignId);
 
   // ── Reivindica o próximo item (lock otimista) ─────────────────────────
   let sel = admin
