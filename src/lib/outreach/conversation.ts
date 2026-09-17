@@ -18,19 +18,29 @@ export type OutreachState =
   | "sent"
   | "delivered"
   | "read"
+  | "auto_replied"
   | "replied"
   | "failed"
   | "opted_out";
 
+export type ReplyKind = "auto" | "human";
+export type InterestStatus = "interested" | "not_interested";
+
+/**
+ * `auto_replied` fica entre `read` e `replied`: uma resposta automática
+ * (bot/ausência) avança o acompanhamento, mas uma resposta humana posterior
+ * sempre prevalece — nunca o contrário (rank de `replied` é maior).
+ */
 const RANK: Record<OutreachState, number> = {
   queued: 1,
   sending: 2,
   sent: 3,
   delivered: 4,
   read: 5,
-  failed: 6,
+  auto_replied: 6,
   replied: 7,
-  opted_out: 8,
+  failed: 8,
+  opted_out: 9,
 };
 
 /**
@@ -94,6 +104,8 @@ export function outreachStateLabel(state: string | null): {
       return { label: "Entregue", icon: "✓✓", tone: "success" };
     case "read":
       return { label: "Lido", icon: "👁", tone: "success" };
+    case "auto_replied":
+      return { label: "Resposta automática", icon: "🤖", tone: "info" };
     case "replied":
       return { label: "Respondeu", icon: "💬", tone: "hot" };
     case "failed":
@@ -103,6 +115,27 @@ export function outreachStateLabel(state: string | null): {
     default:
       return { label: "—", icon: "•", tone: "muted" };
   }
+}
+
+/**
+ * Um único badge por conversa — nunca vários vermelhos ao mesmo tempo.
+ * Prioridade: precisa de você > sem interesse/opt-out > falhou >
+ * resposta automática > interessado > estado de envio (fila/entregue/lido…).
+ */
+export function conversationBadge(row: {
+  outreach_state: string | null;
+  needs_attention: boolean;
+  interest_status?: string | null;
+}): { label: string; icon: string; tone: "muted" | "info" | "success" | "danger" | "hot" } {
+  if (row.needs_attention) return { label: "Precisa de você", icon: "🔥", tone: "danger" };
+  if (row.interest_status === "not_interested" || row.outreach_state === "opted_out")
+    return { label: "Sem interesse", icon: "⚪", tone: "muted" };
+  if (row.outreach_state === "failed") return { label: "Falhou", icon: "🔴", tone: "danger" };
+  if (row.outreach_state === "auto_replied")
+    return { label: "Resposta automática", icon: "🤖", tone: "info" };
+  if (row.interest_status === "interested")
+    return { label: "Interessado", icon: "🟢", tone: "success" };
+  return outreachStateLabel(row.outreach_state);
 }
 
 /**
@@ -148,7 +181,8 @@ export async function ensureOutreachConversation(
 
 /**
  * Aplica um estado de acompanhamento à conversa (avança, nunca regride).
- * `replied` também marca `needs_attention` (atendimento humano necessário).
+ * `needsAttention`/`interestStatus`/`replyKind` são decididos pelo chamador
+ * a partir do conteúdo da resposta — ver reply-classifier.ts.
  */
 export async function markConversationOutreach(
   admin: Admin,
@@ -161,6 +195,18 @@ export async function markConversationOutreach(
     at?: string;
     preview?: string | null;
     catalogSent?: boolean;
+    /**
+     * Define explicitamente se a conversa precisa de atendimento humano.
+     * `undefined` = não altera (ex.: resposta automática não deve nem ligar
+     * nem desligar o que já estava valendo). Deve ser calculado pelo chamador
+     * a partir da classificação da resposta (ver reply-classifier.ts) — esta
+     * função nunca decide sozinha que "recebeu resposta" = "precisa de você".
+     */
+    needsAttention?: boolean;
+    /** Classificação da última resposta humana. `undefined` = não altera. */
+    interestStatus?: InterestStatus | null;
+    /** `auto` (bot/ausência) ou `human`. `undefined` = não altera. */
+    replyKind?: ReplyKind | null;
   },
 ): Promise<void> {
   const at = args.at ?? new Date().toISOString();
@@ -209,16 +255,31 @@ export async function markConversationOutreach(
   if (args.campaignId) patch.outreach_campaign_id = args.campaignId;
   if (args.catalogSent) patch.catalog_sent = true;
 
+  // Timestamp/estado "chegou uma resposta" é factual — atualiza mesmo quando
+  // o rank não avança (ex.: 2ª resposta humana seguida, mesma classificação).
+  if (args.state === "replied" || args.state === "auto_replied") {
+    patch.last_inbound_at = at;
+    patch.status = "pending";
+  } else if (args.state === "opted_out") {
+    patch.last_inbound_at = at;
+  }
+
   if (resolved) {
     patch.outreach_state = args.state;
     if (args.state === "sending" || args.state === "sent") patch.last_outbound_at = at;
-    if (args.state === "replied") {
-      patch.last_inbound_at = at;
-      if (!current?.needs_attention) {
-        patch.needs_attention = true;
-        patch.attention_since = at;
-      }
-      patch.status = "pending";
+  }
+
+  // needs_attention/interest/reply_kind refletem a ÚLTIMA resposta e são
+  // decididos pelo chamador (classificação de conteúdo) — nunca implícitos
+  // aqui a partir só de "chegou mensagem".
+  if (args.replyKind !== undefined) patch.last_reply_kind = args.replyKind;
+  if (args.interestStatus !== undefined) patch.interest_status = args.interestStatus;
+  if (args.needsAttention !== undefined) {
+    patch.needs_attention = args.needsAttention;
+    if (args.needsAttention) {
+      if (!current?.needs_attention) patch.attention_since = at;
+    } else {
+      patch.attention_since = null;
     }
   }
 

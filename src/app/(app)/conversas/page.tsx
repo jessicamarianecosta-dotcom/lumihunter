@@ -6,33 +6,27 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { HelpTip } from "@/components/help/help-tip";
 import { formatDatePtBR } from "@/lib/utils";
-import { outreachStateLabel } from "@/lib/outreach/conversation";
+import { conversationBadge } from "@/lib/outreach/conversation";
 
 export const metadata: Metadata = { title: "Conversas" };
 
 type Filter =
   | "all"
   | "attention"
-  | "queued"
-  | "sent"
-  | "delivered"
-  | "read"
-  | "replied"
   | "waiting"
-  | "failed"
-  | "opted_out";
+  | "replied"
+  | "interested"
+  | "not_interested"
+  | "failed";
 
 const FILTERS: { key: Filter; label: string }[] = [
   { key: "all", label: "Todas" },
   { key: "attention", label: "🔥 Precisa de você" },
-  { key: "queued", label: "🟡 Na fila" },
-  { key: "sent", label: "✓ Enviadas" },
-  { key: "delivered", label: "✓✓ Entregues" },
-  { key: "read", label: "👁 Lidas" },
+  { key: "waiting", label: "🟡 Aguardando resposta" },
   { key: "replied", label: "💬 Responderam" },
-  { key: "waiting", label: "⏳ Aguardando resposta" },
+  { key: "interested", label: "🟢 Interessados" },
+  { key: "not_interested", label: "⚪ Sem interesse" },
   { key: "failed", label: "🔴 Falharam" },
-  { key: "opted_out", label: "🚫 Opt-out" },
 ];
 
 interface Row {
@@ -41,51 +35,56 @@ interface Row {
   outreach_state: string | null;
   needs_attention: boolean;
   attention_since: string | null;
+  interest_status: string | null;
+  last_reply_kind: string | null;
   catalog_sent: boolean;
   last_message_preview: string | null;
   last_message_at: string | null;
   last_inbound_at: string | null;
   last_outbound_at: string | null;
   unread_count: number;
-  leads: { id: string; name: string; city: string | null } | null;
+  leads: { id: string; name: string; segment: string | null; city: string | null } | null;
 }
 
+/** Uma conversa nunca aparece em duas "gavetas" que se contradizem. */
 function matches(r: Row, f: Filter): boolean {
   const s = r.outreach_state;
+  const notInterested = r.interest_status === "not_interested" || s === "opted_out";
   switch (f) {
     case "all":
       return true;
     case "attention":
       return r.needs_attention;
-    case "queued":
-      return s === "queued" || s === "sending";
-    case "sent":
-      return s === "sent";
-    case "delivered":
-      return s === "delivered";
-    case "read":
-      return s === "read";
-    case "replied":
-      return s === "replied" || r.needs_attention;
     case "waiting":
-      return (s === "sent" || s === "delivered" || s === "read") && !r.needs_attention;
+      return (
+        !r.needs_attention &&
+        !notInterested &&
+        s !== "failed" &&
+        (r.last_inbound_at === null || s === "auto_replied")
+      );
+    case "replied":
+      return r.last_inbound_at !== null;
+    case "interested":
+      return r.interest_status === "interested";
+    case "not_interested":
+      return notInterested;
     case "failed":
       return s === "failed";
-    case "opted_out":
-      return s === "opted_out";
   }
 }
 
-/** Prioridade: quem respondeu e precisa de você primeiro. */
+/** Prioridade de exibição: quem precisa de você primeiro, sempre. */
 function priority(r: Row): number {
   if (r.needs_attention) return 0;
-  if (r.outreach_state === "replied") return 1;
-  if (r.outreach_state === "read") return 2;
-  if (r.outreach_state === "delivered") return 3;
-  if (r.outreach_state === "sent" || r.outreach_state === "sending") return 4;
-  if (r.outreach_state === "queued") return 5;
-  if (r.outreach_state === "failed") return 6;
-  return 7;
+  if (r.interest_status === "interested") return 1;
+  if (r.outreach_state === "auto_replied") return 2;
+  if (r.outreach_state === "replied") return 3;
+  if (r.outreach_state === "read") return 4;
+  if (r.outreach_state === "delivered") return 5;
+  if (r.outreach_state === "sent" || r.outreach_state === "sending") return 6;
+  if (r.outreach_state === "queued") return 7;
+  if (r.outreach_state === "failed") return 8;
+  return 9;
 }
 
 export default async function ConversasPage({
@@ -102,7 +101,7 @@ export default async function ConversasPage({
   const { data } = await supabase
     .from("conversations")
     .select(
-      "id, channel, outreach_state, needs_attention, attention_since, catalog_sent, last_message_preview, last_message_at, last_inbound_at, last_outbound_at, unread_count, leads(id, name, city)",
+      "id, channel, outreach_state, needs_attention, attention_since, interest_status, last_reply_kind, catalog_sent, last_message_preview, last_message_at, last_inbound_at, last_outbound_at, unread_count, leads(id, name, segment, city)",
     )
     .eq("company_id", ctx.company.id)
     .order("last_message_at", { ascending: false, nullsFirst: false })
@@ -112,14 +111,11 @@ export default async function ConversasPage({
   const counts: Record<Filter, number> = {
     all: rows.length,
     attention: rows.filter((r) => matches(r, "attention")).length,
-    queued: rows.filter((r) => matches(r, "queued")).length,
-    sent: rows.filter((r) => matches(r, "sent")).length,
-    delivered: rows.filter((r) => matches(r, "delivered")).length,
-    read: rows.filter((r) => matches(r, "read")).length,
-    replied: rows.filter((r) => matches(r, "replied")).length,
     waiting: rows.filter((r) => matches(r, "waiting")).length,
+    replied: rows.filter((r) => matches(r, "replied")).length,
+    interested: rows.filter((r) => matches(r, "interested")).length,
+    not_interested: rows.filter((r) => matches(r, "not_interested")).length,
     failed: rows.filter((r) => matches(r, "failed")).length,
-    opted_out: rows.filter((r) => matches(r, "opted_out")).length,
   };
 
   const visible = rows
@@ -142,14 +138,14 @@ export default async function ConversasPage({
           )}
           <HelpTip
             title="Conversas"
-            text="Aqui você acompanha o que realmente aconteceu no WhatsApp: na fila → enviado → entregue → lido → respondeu. Quem respondeu aparece primeiro e precisa do seu atendimento."
+            text="Sua caixa de entrada de prospecção: quem respondeu, se foi resposta automática ou de uma pessoa, e quem realmente precisa de você agora. Resposta automática (fora do horário, mensagem de ausência) não vira 'precisa de você' sozinha."
             articleSlug="o-que-e-a-central-de-conversas"
           />
         </h1>
         <p className="text-sm text-muted-foreground">
-          Acompanhamento real dos envios. &ldquo;WhatsApp ✓&rdquo; na descoberta
-          significa só que existe um número — aqui você vê se a mensagem saiu,
-          chegou, foi lida e se responderam.
+          Quem respondeu e precisa de mim agora? É essa a pergunta que esta
+          tela responde — não confunda resposta automática com lead
+          interessado.
         </p>
       </div>
 
@@ -173,44 +169,43 @@ export default async function ConversasPage({
       <div className="space-y-2">
         {visible.map((c) => {
           const lead = c.leads;
-          const st = outreachStateLabel(c.outreach_state);
+          const badge = conversationBadge(c);
+          const tone =
+            badge.tone === "success"
+              ? "success"
+              : badge.tone === "danger"
+                ? "danger"
+                : badge.tone === "hot"
+                  ? "default"
+                  : "secondary";
           return (
             <Link key={c.id} href={`/conversas/${c.id}`} className="block">
               <Card
                 className={
-                  c.needs_attention ? "border-red-400 dark:border-red-500" : ""
+                  c.needs_attention
+                    ? "border-red-400 dark:border-red-500"
+                    : badge.tone === "success"
+                      ? "border-emerald-400/60 dark:border-emerald-500/60"
+                      : ""
                 }
               >
                 <CardContent className="flex items-center justify-between gap-3 p-4">
                   <div className="min-w-0">
                     <p className="flex flex-wrap items-center gap-1.5 text-sm font-medium">
                       {lead?.name ?? "Lead"}
-                      <Badge variant="outline">{c.channel}</Badge>
-                      {c.needs_attention ? (
-                        <Badge variant="danger">🔥 Precisa de atendimento</Badge>
-                      ) : (
-                        <Badge
-                          variant={
-                            st.tone === "success"
-                              ? "success"
-                              : st.tone === "danger"
-                                ? "danger"
-                                : st.tone === "hot"
-                                  ? "default"
-                                  : "secondary"
-                          }
-                        >
-                          {st.icon} {st.label}
-                        </Badge>
-                      )}
+                      <Badge variant={tone}>
+                        {badge.icon} {badge.label}
+                      </Badge>
                       {c.catalog_sent && (
                         <span className="text-[11px] text-emerald-600 dark:text-emerald-400">
                           📎 catálogo
                         </span>
                       )}
                     </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {[lead?.segment, lead?.city].filter(Boolean).join(" • ") || "—"}
+                    </p>
                     <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">
-                      {lead?.city ? `${lead.city} · ` : ""}
                       {c.last_message_preview ?? "—"}
                     </p>
                   </div>

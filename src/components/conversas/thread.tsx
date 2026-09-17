@@ -36,7 +36,14 @@ interface Msg {
   error: string | null;
   attachments: Attachment[];
   created_at: string;
+  reply_kind?: string | null;
+  interest?: string | null;
 }
+
+const INTEREST_LABEL: Record<string, string> = {
+  interested: "🟢 interessado",
+  not_interested: "⚪ sem interesse",
+};
 
 const MSG_STATUS_LABEL: Record<string, string> = {
   queued: "🟡 na fila",
@@ -193,9 +200,16 @@ export function ConversationThread({
             className={`max-w-[85%] rounded-lg border p-3 text-sm ${
               m.direction === "outbound"
                 ? "ml-auto bg-primary/10"
-                : "bg-card"
+                : m.reply_kind === "auto"
+                  ? "border-dashed bg-muted/50"
+                  : "bg-card"
             }`}
           >
+            {m.direction === "inbound" && m.reply_kind === "auto" && (
+              <p className="mb-1 text-[11px] font-medium text-muted-foreground">
+                🤖 resposta automática
+              </p>
+            )}
             {m.attachments?.map((a, i) =>
               a.kind === "image" && a.url ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -223,6 +237,9 @@ export function ConversationThread({
               {new Date(m.created_at).toLocaleString("pt-BR")}
               {m.direction === "outbound"
                 ? ` · ${MSG_STATUS_LABEL[m.status] ?? m.status}`
+                : ""}
+              {m.direction === "inbound" && m.interest && INTEREST_LABEL[m.interest]
+                ? ` · ${INTEREST_LABEL[m.interest]}`
                 : ""}
             </p>
             {m.status === "failed" && m.error && (

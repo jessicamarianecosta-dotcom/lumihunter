@@ -10,7 +10,9 @@ import { looksLikeOptOut, recordOptOut } from "@/lib/outreach/optout";
 import {
   markConversationOutreach,
   queueStatusToState,
+  type OutreachState,
 } from "@/lib/outreach/conversation";
+import { classifyReply } from "@/lib/outreach/reply-classifier";
 import { sendPendingOutreachFollowup } from "@/lib/outreach/worker";
 
 const OUTREACH_STATUS_COLUMN: Record<string, string> = {
@@ -218,6 +220,18 @@ export async function POST(req: NextRequest) {
     }
     if (!conversation) continue;
 
+    // classifica ANTES de gravar — precisa estar na própria mensagem (para o
+    // histórico mostrar "resposta automática" vs. humana) e guiar o estado
+    // da conversa (ver reply-classifier.ts: sem IA, não depende de chave).
+    const optedOutEarly = looksLikeOptOut(msg.text);
+    const classification = classifyReply(msg.text);
+    const msgReplyKind = optedOutEarly ? "human" : classification.kind;
+    const msgInterest = optedOutEarly
+      ? "not_interested"
+      : classification.interest === "neutral"
+        ? null
+        : classification.interest;
+
     const { error: msgErr } = await admin.from("messages").insert({
       company_id: companyId,
       conversation_id: conversation.id,
@@ -229,6 +243,8 @@ export async function POST(req: NextRequest) {
       provider: "meta",
       provider_message_id: msg.providerMessageId,
       sent_at: new Date(Number(msg.timestamp) * 1000).toISOString(),
+      reply_kind: msgReplyKind,
+      interest: msgInterest,
     });
     if (msgErr) {
       console.error(
@@ -242,8 +258,6 @@ export async function POST(req: NextRequest) {
       .update({ status: "replied" })
       .eq("id", lead.id)
       .in("status", ["new", "qualified", "contacted"]);
-
-    const optedOutEarly = looksLikeOptOut(msg.text);
 
     // a 1ª resposta do lead é o que abre a janela de 24h de conversa livre —
     // só agora dá pra mandar o catálogo/mensagem que ficaram pendentes de um
@@ -270,14 +284,40 @@ export async function POST(req: NextRequest) {
       .eq("lead_id", lead.id)
       .not("status", "in", "(replied,opted_out)");
 
-    // a conversa passa a "precisa de atendimento humano" (ou opt-out)
+    // Estado da conversa a partir da classificação — NÃO basta "chegou
+    // resposta" para virar "precisa de você" (ver reply-classifier.ts):
+    // - opt-out explícito → opted_out, sem interesse, não precisa de você
+    // - resposta automática (bot/ausência) → auto_replied, não liga/desliga
+    //   o que já estava valendo (uma humana anterior continua valendo)
+    // - resposta humana → replied; precisa de você só se não for claramente
+    //   "sem interesse"
+    let outreachState: OutreachState;
+    let needsAttention: boolean | undefined;
+    let interestStatus: "interested" | "not_interested" | null | undefined;
+    if (optedOutEarly) {
+      outreachState = "opted_out";
+      needsAttention = false;
+      interestStatus = "not_interested";
+    } else if (classification.kind === "auto") {
+      outreachState = "auto_replied";
+      needsAttention = undefined;
+      interestStatus = undefined;
+    } else {
+      outreachState = "replied";
+      needsAttention = classification.interest !== "not_interested";
+      interestStatus = classification.interest === "neutral" ? null : classification.interest;
+    }
+
     await markConversationOutreach(admin, {
       companyId,
       conversationId: conversation.id,
       leadId: lead.id,
-      state: optedOutEarly ? "opted_out" : "replied",
+      state: outreachState,
       at: new Date(Number(msg.timestamp) * 1000 || Date.now()).toISOString(),
       preview: msg.text,
+      needsAttention,
+      interestStatus,
+      replyKind: msgReplyKind,
     });
 
     // opt-out explícito → bloqueio definitivo (vale para qualquer campanha)

@@ -1028,10 +1028,12 @@ export type Database = {
           handled_at: string | null
           handled_by: string | null
           id: string
+          interest_status: string | null
           last_inbound_at: string | null
           last_message_at: string | null
           last_message_preview: string | null
           last_outbound_at: string | null
+          last_reply_kind: string | null
           lead_id: string
           needs_attention: boolean
           outreach_campaign_id: string | null
@@ -1054,10 +1056,12 @@ export type Database = {
           handled_at?: string | null
           handled_by?: string | null
           id?: string
+          interest_status?: string | null
           last_inbound_at?: string | null
           last_message_at?: string | null
           last_message_preview?: string | null
           last_outbound_at?: string | null
+          last_reply_kind?: string | null
           lead_id: string
           needs_attention?: boolean
           outreach_campaign_id?: string | null
@@ -1080,10 +1084,12 @@ export type Database = {
           handled_at?: string | null
           handled_by?: string | null
           id?: string
+          interest_status?: string | null
           last_inbound_at?: string | null
           last_message_at?: string | null
           last_message_preview?: string | null
           last_outbound_at?: string | null
+          last_reply_kind?: string | null
           lead_id?: string
           needs_attention?: boolean
           outreach_campaign_id?: string | null
@@ -2231,10 +2237,12 @@ export type Database = {
           direction: Database["public"]["Enums"]["message_direction"]
           error: string | null
           id: string
+          interest: string | null
           lead_id: string
           provider: string | null
           provider_message_id: string | null
           read_at: string | null
+          reply_kind: string | null
           scheduled_for: string | null
           sent_at: string | null
           sent_by: string | null
@@ -2253,10 +2261,12 @@ export type Database = {
           direction: Database["public"]["Enums"]["message_direction"]
           error?: string | null
           id?: string
+          interest?: string | null
           lead_id: string
           provider?: string | null
           provider_message_id?: string | null
           read_at?: string | null
+          reply_kind?: string | null
           scheduled_for?: string | null
           sent_at?: string | null
           sent_by?: string | null
@@ -2275,10 +2285,12 @@ export type Database = {
           direction?: Database["public"]["Enums"]["message_direction"]
           error?: string | null
           id?: string
+          interest?: string | null
           lead_id?: string
           provider?: string | null
           provider_message_id?: string | null
           read_at?: string | null
+          reply_kind?: string | null
           scheduled_for?: string | null
           sent_at?: string | null
           sent_by?: string | null

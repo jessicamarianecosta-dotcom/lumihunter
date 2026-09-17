@@ -8,8 +8,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConversationThread } from "@/components/conversas/thread";
-import { outreachStateLabel } from "@/lib/outreach/conversation";
-import { assumeConversation } from "../actions";
+import { NoteForm } from "@/components/leads/note-form";
+import { conversationBadge } from "@/lib/outreach/conversation";
+import { assumeConversation, setConversationInterest, closeConversation } from "../actions";
 
 export const metadata: Metadata = { title: "Conversa" };
 
@@ -24,7 +25,7 @@ export default async function ConversaPage({
 
   const { data: conv } = await supabase
     .from("conversations")
-    .select("*, leads(id, name, segment, city, state, whatsapp, email)")
+    .select("*, leads(id, name, segment, city, state, whatsapp, email, source)")
     .eq("id", id)
     .eq("company_id", ctx.company.id)
     .maybeSingle();
@@ -36,11 +37,16 @@ export default async function ConversaPage({
     segment: string | null;
     city: string | null;
     state: string | null;
+    whatsapp: string | null;
+    email: string | null;
+    source: string | null;
   } | null;
 
   const { data: messagesRaw } = await supabase
     .from("messages")
-    .select("id, direction, body, channel, status, error, attachments, created_at")
+    .select(
+      "id, direction, body, channel, status, error, attachments, created_at, reply_kind, interest",
+    )
     .eq("conversation_id", id)
     .order("created_at", { ascending: true });
 
@@ -72,7 +78,15 @@ export default async function ConversaPage({
           .maybeSingle()
       ).data?.name ?? null
     : null;
-  const st = outreachStateLabel(conv.outreach_state);
+  const badge = conversationBadge(conv);
+  const badgeVariant =
+    badge.tone === "success"
+      ? "success"
+      : badge.tone === "danger"
+        ? "danger"
+        : badge.tone === "hot"
+          ? "default"
+          : "secondary";
 
   // zera não lidas
   if (conv.unread_count > 0) {
@@ -93,23 +107,15 @@ export default async function ConversaPage({
           <h1 className="flex flex-wrap items-center gap-2 text-xl font-semibold">
             {lead?.name ?? "Lead"}
             <Badge variant="outline">{conv.channel}</Badge>
-            {conv.outreach_state && !conv.needs_attention && (
-              <Badge
-                variant={
-                  st.tone === "success"
-                    ? "success"
-                    : st.tone === "danger"
-                      ? "danger"
-                      : "secondary"
-                }
-              >
-                {st.icon} {st.label}
-              </Badge>
-            )}
+            <Badge variant={badgeVariant}>
+              {badge.icon} {badge.label}
+            </Badge>
           </h1>
           <p className="text-sm text-muted-foreground">
             {lead?.segment ?? "—"} · {lead?.city ?? "—"}
             {lead?.state ? `/${lead.state}` : ""}
+            {lead?.whatsapp ? ` · ${lead.whatsapp}` : ""}
+            {lead?.source ? ` · origem: ${lead.source}` : ""}
             {campaignName ? ` · campanha: ${campaignName}` : ""}
             {conv.catalog_sent ? " · 📎 catálogo enviado" : ""}
           </p>
@@ -128,7 +134,7 @@ export default async function ConversaPage({
         <Card className="border-red-400 bg-red-500/5 dark:border-red-500">
           <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
             <div>
-              <p className="text-sm font-semibold">🔥 O cliente respondeu</p>
+              <p className="text-sm font-semibold">🔥 O cliente respondeu e precisa de você</p>
               <p className="text-xs text-muted-foreground">
                 A prospecção automática já parou para este contato. Assuma o
                 atendimento para continuar a conversa.
@@ -142,6 +148,36 @@ export default async function ConversaPage({
           </CardContent>
         </Card>
       )}
+
+      {conv.outreach_state === "auto_replied" && !conv.needs_attention && (
+        <Card className="border-sky-400/50 bg-sky-500/5 dark:border-sky-500/50">
+          <CardContent className="p-4">
+            <p className="text-sm font-semibold">🤖 Resposta automática</p>
+            <p className="text-xs text-muted-foreground">
+              Parece uma mensagem de ausência/bot — aguardando uma resposta de
+              uma pessoa. Se for engano, marque manualmente abaixo.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        <form action={setConversationInterest.bind(null, conv.id, "interested")}>
+          <Button size="sm" variant="outline" type="submit">
+            🟢 Marcar como interessado
+          </Button>
+        </form>
+        <form action={setConversationInterest.bind(null, conv.id, "not_interested")}>
+          <Button size="sm" variant="outline" type="submit">
+            ⚪ Sem interesse
+          </Button>
+        </form>
+        <form action={closeConversation.bind(null, conv.id)}>
+          <Button size="sm" variant="outline" type="submit">
+            Encerrar conversa
+          </Button>
+        </form>
+      </div>
 
       {conv.ai_summary && (
         <Card>
@@ -164,6 +200,8 @@ export default async function ConversaPage({
         channel={conv.channel === "email" ? "email" : "whatsapp"}
         messages={messages}
       />
+
+      {lead && <NoteForm leadId={lead.id} />}
     </div>
   );
 }
