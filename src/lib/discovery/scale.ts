@@ -18,6 +18,7 @@ import { runDiscovery, primeTavilyKey } from "./index";
 import { heuristicBuyerProfile, getCampaignProductContext } from "./product-context";
 import type { CampaignBrief, DiscoveredCompany, QueryLogRow } from "./types";
 import { approveDiscoveries, enqueueOutreach } from "@/lib/outreach/promote";
+import { expandSearchStrategy, normalizeExpansionState } from "./expand";
 
 type Admin = SupabaseClient<Database>;
 
@@ -220,18 +221,24 @@ export interface BatchOutcome {
 export async function runScaleBatch(
   admin: Admin,
   runId: string,
-  opts: { batches?: number } = {},
+  opts: { batches?: number; deadlineMs?: number } = {},
 ): Promise<BatchOutcome> {
   const maxBatches = Math.max(1, opts.batches ?? 1);
+  // Cada batch agora pode envolver 2 fontes de busca + eventualmente 1
+  // chamada de IA (camada 2 da expansão) — mais lento que antes. Não inicia
+  // um novo batch se já não houver tempo hábil para ele terminar dentro do
+  // maxDuration da função serverless (evita o 504 "Task timed out").
+  const deadline = Date.now() + (opts.deadlineMs ?? 90_000);
   let last: BatchOutcome = {
     runId, ran: false, batch: 0, queriesUsed: 0, inserted: 0, qualified: 0, enqueued: 0, done: false,
   };
 
   for (let i = 0; i < maxBatches; i++) {
+    if (Date.now() > deadline) break;
     const { data: run } = await admin
       .from("discovery_runs")
       .select(
-        "id, company_id, campaign_id, scale_status, batch_count, candidates_count, target_opportunities, pending_queries, used_queries, buyer_segments",
+        "id, company_id, campaign_id, scale_status, batch_count, candidates_count, target_opportunities, pending_queries, used_queries, buyer_segments, expansion_state",
       )
       .eq("id", runId)
       .maybeSingle();
@@ -269,16 +276,61 @@ export async function runScaleBatch(
       targetOpportunities: run.target_opportunities ?? campaign.max_opportunities ?? 250,
     };
 
-    const plan = planNextBatch(state);
-    if (plan.done) {
-      await admin.from("discovery_runs").update({ scale_status: "exhausted" }).eq("id", runId);
-      return { ...last, done: true, reason: plan.reason };
-    }
-
     const brief = await rebuildBrief(admin, run);
     if (!brief) {
       await admin.from("discovery_runs").update({ scale_status: "stopped" }).eq("id", runId);
       return { ...last, done: true, reason: "no_brief" };
+    }
+
+    let plan = planNextBatch(state);
+    if (plan.done && plan.reason === "queries_exhausted") {
+      // A quantidade pedida é a quantidade FINAL de leads válidos — não para
+      // só porque o plano inicial de consultas acabou. Expande a estratégia
+      // (mais variações, mais segmentos via IA, mais regiões) antes de desistir.
+      const expansionState = normalizeExpansionState(run.expansion_state);
+      const expansion = await expandSearchStrategy({
+        companyId: run.company_id,
+        brief,
+        usedQueries: state.usedQueries,
+        expansionState,
+      });
+
+      if (expansion.queries.length > 0) {
+        state.pendingQueries = expansion.queries;
+        await admin
+          .from("discovery_runs")
+          .update({
+            pending_queries: expansion.queries as unknown as Json,
+            expansion_state: expansion.nextState as unknown as Json,
+          })
+          .eq("id", runId);
+        plan = planNextBatch(state);
+      } else {
+        await admin
+          .from("discovery_runs")
+          .update({
+            scale_status: "exhausted",
+            expansion_state: expansion.nextState as unknown as Json,
+          })
+          .eq("id", runId);
+        await admin.from("activities").insert({
+          company_id: run.company_id,
+          kind: "system",
+          title: "Descoberta de leads encerrada",
+          body:
+            `Meta de ${state.targetOpportunities} leads válidos não atingida ` +
+            `(chegou a ${state.candidatesCount}) — esgotadas todas as camadas de busca ` +
+            `disponíveis (segmentos, variações de termo, regiões e fontes configuradas) ` +
+            `para "${brief.audience || brief.productContext.name}" em ${brief.regions.join(", ") || "—"}.`,
+        });
+        return { ...last, done: true, reason: plan.reason };
+      }
+    }
+
+    if (plan.done) {
+      // target_reached (ou, em tese, ainda exhausted após a expansão falhar)
+      await admin.from("discovery_runs").update({ scale_status: "exhausted" }).eq("id", runId);
+      return { ...last, done: true, reason: plan.reason };
     }
 
     // dedupe contra tudo que a rodada já achou
@@ -336,8 +388,12 @@ export async function runScaleBatch(
     );
 
     const next = applyBatch(state, plan.queries, result.qualified.length);
-    const willExhaust = next.pendingQueries.length === 0
-      || next.candidatesCount >= next.targetOpportunities;
+    // Só encerra de fato ao atingir a meta. Ficar sem `pendingQueries` NÃO
+    // encerra a rodada — a próxima chamada tenta expandir a estratégia
+    // (`expandSearchStrategy`, no topo deste laço) antes de desistir. É
+    // exatamente essa distinção que corrige o encerramento prematuro (parar
+    // em 338/500 só porque a lista inicial de consultas acabou).
+    const targetReached = next.candidatesCount >= next.targetOpportunities;
 
     await admin
       .from("discovery_runs")
@@ -347,7 +403,7 @@ export async function runScaleBatch(
         pending_queries: next.pendingQueries as unknown as Json,
         used_queries: next.usedQueries as unknown as Json,
         last_batch_at: new Date().toISOString(),
-        scale_status: willExhaust ? "exhausted" : "active",
+        scale_status: targetReached ? "exhausted" : "active",
         found: (run.candidates_count ?? 0) + result.qualified.length,
         qualified: next.candidatesCount,
       })
@@ -423,14 +479,10 @@ export async function runScaleBatch(
       inserted,
       qualified: result.qualified.length,
       enqueued,
-      done: willExhaust,
-      reason: willExhaust
-        ? next.candidatesCount >= next.targetOpportunities
-          ? "target_reached"
-          : "queries_exhausted"
-        : undefined,
+      done: targetReached,
+      reason: targetReached ? "target_reached" : undefined,
     };
-    if (willExhaust) break;
+    if (targetReached) break;
   }
 
   return last;

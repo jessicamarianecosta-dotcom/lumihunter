@@ -29,10 +29,12 @@ export async function GET(req: NextRequest) {
   // 0) Descoberta em escala — dá continuidade às rodadas ativas (baseline;
   //    o pg_cron do Supabase roda com mais frequência quando configurado)
   const scaleRuns = await activeScaleRuns(admin);
+  const scaleDeadline = Date.now() + 60_000; // baseline — o pg_cron dedicado faz o trabalho pesado
   let scaleBatches = 0;
   for (const runId of scaleRuns.slice(0, 15)) {
+    if (Date.now() > scaleDeadline) break;
     try {
-      const r = await runScaleBatch(admin, runId, { batches: 2 });
+      const r = await runScaleBatch(admin, runId, { batches: 2, deadlineMs: 30_000 });
       if (r.ran) scaleBatches += 1;
     } catch (e) {
       console.error("[cron/followups] scale", runId, e);

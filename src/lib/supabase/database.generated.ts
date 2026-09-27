@@ -1268,6 +1268,7 @@ export type Database = {
           created_by: string | null
           discarded: number
           error: string | null
+          expansion_state: Json
           found: number
           id: string
           last_batch_at: string | null
@@ -1300,6 +1301,7 @@ export type Database = {
           created_by?: string | null
           discarded?: number
           error?: string | null
+          expansion_state?: Json
           found?: number
           id?: string
           last_batch_at?: string | null
@@ -1332,6 +1334,7 @@ export type Database = {
           created_by?: string | null
           discarded?: number
           error?: string | null
+          expansion_state?: Json
           found?: number
           id?: string
           last_batch_at?: string | null

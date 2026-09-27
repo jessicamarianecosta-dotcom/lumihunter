@@ -26,7 +26,13 @@ export async function GET(req: NextRequest) {
   for (const runId of runs) {
     if (Date.now() > deadline) break;
     try {
-      const r = await runScaleBatch(admin, runId, { batches: 3 });
+      // orçamento por rodada: o que resta do total, sem passar de 100s —
+      // cada batch pode envolver 2 fontes de busca + IA (camada de expansão).
+      const remaining = Math.max(10_000, deadline - Date.now());
+      const r = await runScaleBatch(admin, runId, {
+        batches: 3,
+        deadlineMs: Math.min(remaining, 100_000),
+      });
       results.push(r);
     } catch (e) {
       console.error("[cron/discovery]", runId, e);

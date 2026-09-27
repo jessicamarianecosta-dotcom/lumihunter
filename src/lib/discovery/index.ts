@@ -17,12 +17,14 @@ import { qualify, heuristicApproach } from "./score";
 import { findVerifiedWhatsApp } from "./whatsapp";
 import { refineWithAI } from "./ai";
 import { tavilySource } from "./sources/tavily-source";
+import { serperSource } from "./sources/serper-source";
 import type {
   CampaignBrief,
   DiscoveredCompany,
   DiscoveryRunResult,
   LeadSource,
   QueryLogRow,
+  RawDiscoveryHit,
 } from "./types";
 
 export type {
@@ -42,7 +44,7 @@ export {
 export { buildScaleQueries, buildDiscoveryQueries } from "./queries";
 export { expandRegions } from "./regions";
 
-const SOURCES: LeadSource[] = [tavilySource];
+const SOURCES: LeadSource[] = [tavilySource, serperSource];
 
 export function discoverySourcesConfigured(): boolean {
   return SOURCES.some((s) => s.isConfigured());
@@ -208,9 +210,20 @@ export async function runDiscovery(args: RunArgs): Promise<DiscoveryRunResult> {
   const configured = SOURCES.filter((s) => s.isConfigured());
   if (configured.length === 0) throw new Error("Nenhuma fonte de descoberta configurada.");
 
-  const rawHits = (
-    await Promise.all(configured.map((s) => s.search({ brief, queries, perQuery })))
-  ).flat();
+  // Promise.allSettled: uma fonte falhando (ex.: chave inválida) não pode
+  // derrubar o batch inteiro — as outras fontes seguem normalmente.
+  const sourceResults = await Promise.allSettled(
+    configured.map((s) => s.search({ brief, queries, perQuery })),
+  );
+  const rawHits: RawDiscoveryHit[] = [];
+  for (let i = 0; i < sourceResults.length; i++) {
+    const r = sourceResults[i];
+    if (r.status === "fulfilled") {
+      rawHits.push(...r.value);
+    } else {
+      console.error(`[discovery] fonte "${configured[i].id}" falhou:`, r.reason);
+    }
+  }
 
   // ── Funil consulta a consulta ────────────────────────────────────────
   const log = new Map<string, QueryLogRow>();
