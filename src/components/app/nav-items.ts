@@ -26,6 +26,7 @@ export interface NavItem {
 
 export const NAV_ITEMS: NavItem[] = [
   { href: "/app", label: "Prospecção", icon: Megaphone },
+  { href: "/lista-numeros", label: "Números WhatsApp", icon: ListOrdered },
   { href: "/conversas", label: "Conversas", icon: MessagesSquare },
   { href: "/produtos", label: "Catálogo", icon: Package },
   { href: "/config", label: "Configurações", icon: Settings },
@@ -35,7 +36,6 @@ export const NAV_ITEMS: NavItem[] = [
 // Reative aqui quando precisar de CRM/ICP/agentes/relatórios de novo.
 export const HIDDEN_NAV_ITEMS: NavItem[] = [
   { href: "/campanhas", label: "Campanhas (avançado)", icon: Megaphone },
-  { href: "/lista-numeros", label: "Lista de números (avançado)", icon: ListOrdered },
   { href: "/leads", label: "Leads & CRM", icon: Users },
   { href: "/empresas", label: "Empresas", icon: Building2 },
   { href: "/conhecimento", label: "Base LumiLife", icon: BookOpen },

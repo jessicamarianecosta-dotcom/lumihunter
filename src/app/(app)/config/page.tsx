@@ -887,9 +887,6 @@ export default async function ConfigPage() {
             <a href="/campanhas" className="text-primary underline-offset-4 hover:underline">
               Campanhas por segmento/região
             </a>
-            <a href="/lista-numeros" className="text-primary underline-offset-4 hover:underline">
-              Envio para lista de números (DDD + sequência)
-            </a>
           </div>
         </CardContent>
       </Card>

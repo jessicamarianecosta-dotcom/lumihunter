@@ -2415,6 +2415,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "lead_discovery_status"
+            referencedColumns: ["conversation_id"]
+          },
+          {
             foreignKeyName: "messages_lead_id_fkey"
             columns: ["lead_id"]
             isOneToOne: false
@@ -3404,6 +3411,77 @@ export type Database = {
           won_total?: never
         }
         Relationships: []
+      }
+      lead_discovery_status: {
+        Row: {
+          campaign_id: string | null
+          city: string | null
+          company_id: string | null
+          company_name: string | null
+          conversation_id: string | null
+          created_at: string | null
+          delivered_at: string | null
+          discovery_id: string | null
+          discovery_run_id: string | null
+          discovery_status: string | null
+          email: string | null
+          failure_reason: string | null
+          instagram: string | null
+          interest_status: string | null
+          last_reply_kind: string | null
+          lead_id: string | null
+          lead_status: string | null
+          needs_attention: boolean | null
+          outreach_queue_id: string | null
+          outreach_status: string | null
+          product_match_name: string | null
+          product_match_reason: string | null
+          read_at: string | null
+          replied_at: string | null
+          segment: string | null
+          sent_at: string | null
+          state: string | null
+          website: string | null
+          whatsapp: string | null
+          whatsapp_verified: boolean | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lead_discoveries_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_discoveries_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_discoveries_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "dashboard_metrics"
+            referencedColumns: ["company_id"]
+          },
+          {
+            foreignKeyName: "lead_discoveries_discovery_run_id_fkey"
+            columns: ["discovery_run_id"]
+            isOneToOne: false
+            referencedRelation: "discovery_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_discoveries_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       leads_by_city: {
         Row: {

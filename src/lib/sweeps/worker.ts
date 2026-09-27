@@ -17,6 +17,7 @@ import { isBlocked } from "@/lib/outreach/optout";
 import { resolveCampaignCatalog } from "@/lib/catalog/pdfs";
 import { withinWindow, nextWindowStart, intervalElapsed } from "@/lib/outreach/window";
 import { candidateToPhone, nextCandidate } from "./candidates";
+import { ensureOutreachConversation, markConversationOutreach } from "@/lib/outreach/conversation";
 
 type Admin = SupabaseClient<Database>;
 
@@ -64,6 +65,40 @@ function pickTemplate(sweep: SweepRow): { text: string; index: number } {
   if (templates.length === 0) return { text: "", index: 0 };
   const idx = sweep.next_template_index % templates.length;
   return { text: templates[idx], index: idx };
+}
+
+/**
+ * Números da lista sequencial não têm empresa/nome conhecido — só o
+ * telefone. Sem um `lead` com `whatsapp` preenchido, o webhook de inbound
+ * (`/api/whatsapp/webhook`) não acha para quem é a resposta e a DESCARTA
+ * silenciosamente (`if (!lead) continue`). Por isso todo envio confirmado
+ * cria (ou reaproveita) um lead mínimo — nunca inventa nome de empresa.
+ */
+async function findOrCreateSweepLead(
+  admin: Admin,
+  companyId: string,
+  phone: string,
+): Promise<string> {
+  const { data: existing } = await admin
+    .from("leads")
+    .select("id")
+    .eq("company_id", companyId)
+    .eq("whatsapp", phone)
+    .maybeSingle();
+  if (existing) return existing.id;
+
+  const { data: created } = await admin
+    .from("leads")
+    .insert({
+      company_id: companyId,
+      name: phone,
+      whatsapp: phone,
+      status: "contacted",
+      source: "number_sweep",
+    })
+    .select("id")
+    .single();
+  return created!.id;
 }
 
 async function fetchCompanyName(admin: Admin, companyId: string): Promise<string> {
@@ -246,6 +281,45 @@ export async function sendNextForSweep(
     }
 
     // ── Envio confirmado ────────────────────────────────────────────────
+    // Cria/reaproveita o lead e a conversa ANTES de anexar o catálogo, para
+    // que uma resposta do lead (a qualquer uma das duas mensagens) já
+    // encontre para onde ir no webhook de inbound.
+    const leadId = await findOrCreateSweepLead(admin, sweep.company_id, normalized);
+    let conversationId = await ensureOutreachConversation(admin, {
+      companyId: sweep.company_id,
+      leadId,
+    });
+    if (!conversationId) {
+      // corrida rara: tenta mais uma vez antes de seguir sem histórico de conversa.
+      conversationId = await ensureOutreachConversation(admin, { companyId: sweep.company_id, leadId });
+    }
+
+    if (conversationId) {
+      await admin.from("messages").insert({
+        company_id: sweep.company_id,
+        conversation_id: conversationId,
+        lead_id: leadId,
+        channel: "whatsapp",
+        direction: "outbound",
+        status: "sent",
+        body,
+        provider: "meta",
+        provider_message_id: result.providerMessageId ?? null,
+        sent_at: now.toISOString(),
+      });
+
+      await markConversationOutreach(admin, {
+        companyId: sweep.company_id,
+        conversationId,
+        leadId,
+        state: "sent",
+        at: now.toISOString(),
+        preview: body,
+      });
+    } else {
+      console.error("[sweeps] não foi possível criar/achar a conversa para", normalized);
+    }
+
     let catalogSent = false;
     if (catalog) {
       const doc = await sendDocument(sweep.company_id, {
@@ -254,7 +328,22 @@ export async function sendNextForSweep(
         filename: catalog.filename,
       });
       catalogSent = doc.ok;
-      if (!doc.ok) console.error("[sweeps] catálogo não enviado:", doc.error);
+      if (doc.ok && conversationId) {
+        await admin.from("messages").insert({
+          company_id: sweep.company_id,
+          conversation_id: conversationId,
+          lead_id: leadId,
+          channel: "whatsapp",
+          direction: "outbound",
+          status: "sent",
+          body: `[catálogo] ${catalog.filename}`,
+          provider: "meta",
+          provider_message_id: doc.providerMessageId ?? null,
+          sent_at: new Date().toISOString(),
+        });
+      } else {
+        console.error("[sweeps] catálogo não enviado:", doc.error);
+      }
     }
 
     await admin.from("number_sweep_attempts").insert({

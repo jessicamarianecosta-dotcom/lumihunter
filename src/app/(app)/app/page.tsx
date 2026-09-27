@@ -1,6 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { MessageCircle } from "lucide-react";
 import { getAppContext } from "@/lib/auth/context";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
@@ -11,8 +9,9 @@ import {
 import { listCatalogPdfs } from "@/lib/catalog/pdfs";
 import { DEFAULT_BASE_MESSAGE } from "@/lib/outreach/vars";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { ProspeccaoPanel } from "@/components/app/prospeccao-panel";
+import { ProspeccaoProgress } from "@/components/app/prospeccao-progress";
+import { LeadsDiscoveryList } from "@/components/leads/leads-discovery-list";
 
 export const metadata: Metadata = { title: "Prospecção" };
 
@@ -32,21 +31,12 @@ export default async function ProspeccaoPage() {
     listCatalogPdfs(admin, ctx.company.id).catch(() => []),
   ]);
 
-  const progress = [
-    {
-      label: "Leads válidos",
-      value:
-        snapshot.target > 0
-          ? `${snapshot.found} / ${snapshot.target}`
-          : String(snapshot.found),
-    },
-    { label: "Com WhatsApp", value: snapshot.withWhatsapp },
-    { label: "Novos contatos", value: snapshot.fresh },
-    { label: "Abordados hoje", value: snapshot.approachedToday },
-  ];
+  const regionsLabel = (campaign.regions ?? []).join(", ");
+  const campaignName =
+    [campaign.audience_text, regionsLabel].filter(Boolean).join(" — ") || "Prospecção";
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
+    <div className="mx-auto max-w-5xl space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Prospecção</h1>
         <p className="text-sm text-muted-foreground">
@@ -69,7 +59,7 @@ export default async function ProspeccaoPage() {
           <ProspeccaoPanel
             defaults={{
               segment: campaign.audience_text ?? "",
-              regions: (campaign.regions ?? []).join(", "),
+              regions: regionsLabel,
               quantity: campaign.max_opportunities ?? 100,
               catalogPdfId: campaign.outreach_catalog_pdf_id ?? "",
               message: campaign.outreach_base_message ?? DEFAULT_BASE_MESSAGE,
@@ -82,50 +72,29 @@ export default async function ProspeccaoPage() {
         </CardContent>
       </Card>
 
+      <ProspeccaoProgress
+        initial={{
+          campaignName,
+          found: snapshot.found,
+          withWhatsapp: snapshot.withWhatsapp,
+          fresh: snapshot.fresh,
+          approachedToday: snapshot.approachedToday,
+          replies: snapshot.replies,
+          running: snapshot.running,
+          searching: snapshot.searching,
+          target: snapshot.target,
+        }}
+      />
+
       <div>
         <h2 className="mb-2 text-sm font-medium text-muted-foreground">
-          Progresso
-          {snapshot.searching && snapshot.found < snapshot.target && (
-            <span className="ml-2 text-amber-600">
-              · encontrando mais {snapshot.target - snapshot.found} lead(s) — expandindo a busca automaticamente
-            </span>
-          )}
-          {snapshot.running && (
-            <span className="ml-2 text-emerald-600">· abordagem em andamento</span>
-          )}
+          Leads encontrados
         </h2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {progress.map((p) => (
-            <Card key={p.label}>
-              <CardContent className="p-4">
-                <p className="text-2xl font-semibold tabular-nums">{p.value}</p>
-                <p className="text-xs text-muted-foreground">{p.label}</p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <LeadsDiscoveryList
+          campaignId={campaign.id}
+          runId={campaign.current_discovery_run_id}
+        />
       </div>
-
-      <Card>
-        <CardContent className="flex items-center justify-between p-5">
-          <div className="flex items-center gap-3">
-            <span className="grid size-9 place-items-center rounded-lg bg-secondary">
-              <MessageCircle className="size-4 text-accent" />
-            </span>
-            <div>
-              <p className="font-medium">Conversas</p>
-              <p className="text-xs text-muted-foreground">
-                {snapshot.replies > 0
-                  ? `${snapshot.replies} cliente(s) responderam e aguardam atendimento`
-                  : "Nenhuma resposta aguardando no momento"}
-              </p>
-            </div>
-          </div>
-          <Button asChild variant={snapshot.replies > 0 ? "default" : "outline"}>
-            <Link href="/conversas">Ver conversas</Link>
-          </Button>
-        </CardContent>
-      </Card>
     </div>
   );
 }
