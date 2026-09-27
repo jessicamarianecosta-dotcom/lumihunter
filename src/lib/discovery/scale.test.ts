@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { expandRegions, hasKnownDistricts } from "./regions";
-import { planNextBatch, applyBatch, type ScaleState } from "./scale";
+import { planNextBatch, applyBatch, capacityRemaining, type ScaleState } from "./scale";
 import { buildScaleQueries } from "./queries";
 import type { CampaignBrief } from "./types";
 
@@ -101,5 +101,20 @@ describe("planNextBatch / applyBatch", () => {
     expect(next.usedQueries).toEqual(["a", "b"]);
     expect(next.batchCount).toBe(1);
     expect(next.candidatesCount).toBe(5);
+  });
+});
+
+describe("capacityRemaining (excedentes)", () => {
+  it("meta cheia: nada cabe", () => {
+    expect(capacityRemaining(500, 500)).toBe(0);
+    expect(capacityRemaining(530, 500)).toBe(0); // já passou da meta em batches anteriores
+  });
+
+  it("meta parcial: sobra exatamente a diferença", () => {
+    expect(capacityRemaining(338, 500)).toBe(162);
+  });
+
+  it("nenhum aprovado ainda: cabe a meta inteira", () => {
+    expect(capacityRemaining(0, 500)).toBe(500);
   });
 });

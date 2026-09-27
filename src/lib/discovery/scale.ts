@@ -37,6 +37,16 @@ export interface ScaleState {
 
 export type StopReason = "target_reached" | "queries_exhausted";
 
+/**
+ * Quantos leads deste batch ainda cabem na meta antes de virar excedente
+ * (reserva). Função pura — usada pelo envio automático para não promover
+ * mais leads do que `targetOpportunities` mesmo que o batch tenha
+ * qualificado mais do que isso.
+ */
+export function capacityRemaining(alreadyApproved: number, targetOpportunities: number): number {
+  return Math.max(0, targetOpportunities - Math.max(0, alreadyApproved));
+}
+
 export function planNextBatch(
   state: ScaleState,
   batchSize = SCALE_BATCH_SIZE,
@@ -416,11 +426,19 @@ export async function runScaleBatch(
 
     // ── Envio automático desta leva ──────────────────────────────────
     let enqueued = 0;
+    // ── Excedentes: se este batch ultrapassa a meta, só promove até
+    // completar `targetOpportunities` — o resto fica como reserva (status
+    // "qualified", visível na revisão, mas sem entrar na fila de envio
+    // automaticamente). remainingCapacity=0 → nada a promover neste batch.
+    const alreadyApproved = Math.max(0, next.candidatesCount - result.qualified.length);
+    const remainingCapacity = capacityRemaining(alreadyApproved, state.targetOpportunities);
+
     if (
       campaign.outreach_automatic &&
       campaign.channel === "whatsapp" &&
       campaign.outreach_status !== "paused" &&
-      result.qualified.length > 0
+      result.qualified.length > 0 &&
+      remainingCapacity > 0
     ) {
       try {
         const { data: co } = await admin
@@ -428,11 +446,24 @@ export async function runScaleBatch(
           .select("name")
           .eq("id", run.company_id)
           .maybeSingle();
+
+        let discoveryIds: string[] | undefined;
+        if (result.qualified.length > remainingCapacity) {
+          const dedupeKeys = result.qualified.slice(0, remainingCapacity).map((c) => c.dedupeKey);
+          const { data: matched } = await admin
+            .from("lead_discoveries")
+            .select("id, dedupe_key")
+            .eq("discovery_run_id", runId)
+            .in("dedupe_key", dedupeKeys);
+          discoveryIds = (matched ?? []).map((m) => m.id);
+        }
+
         const promo = await approveDiscoveries(admin, {
           companyId: run.company_id,
           campaignId: run.campaign_id,
           userId: null,
           discoveryRunId: runId,
+          ...(discoveryIds ? { discoveryIds } : {}),
         });
         const enq = await enqueueOutreach(admin, {
           companyId: run.company_id,

@@ -33,7 +33,13 @@ export default async function ProspeccaoPage() {
   ]);
 
   const progress = [
-    { label: "Encontrados", value: snapshot.found },
+    {
+      label: "Leads válidos",
+      value:
+        snapshot.target > 0
+          ? `${snapshot.found} / ${snapshot.target}`
+          : String(snapshot.found),
+    },
     { label: "Com WhatsApp", value: snapshot.withWhatsapp },
     { label: "Novos contatos", value: snapshot.fresh },
     { label: "Abordados hoje", value: snapshot.approachedToday },
@@ -79,6 +85,11 @@ export default async function ProspeccaoPage() {
       <div>
         <h2 className="mb-2 text-sm font-medium text-muted-foreground">
           Progresso
+          {snapshot.searching && snapshot.found < snapshot.target && (
+            <span className="ml-2 text-amber-600">
+              · encontrando mais {snapshot.target - snapshot.found} lead(s) — expandindo a busca automaticamente
+            </span>
+          )}
           {snapshot.running && (
             <span className="ml-2 text-emerald-600">· abordagem em andamento</span>
           )}

@@ -136,6 +136,10 @@ export interface ProspeccaoSnapshot {
   replies: number;
   running: boolean;
   lastSearchAt: string | null;
+  /** quantidade de leads válidos pedida (meta da rodada atual). */
+  target: number;
+  /** true = a busca ainda está ativa, expandindo a estratégia até a meta. */
+  searching: boolean;
 }
 
 /** Contadores da tela — todos derivados dos mesmos registros reais. */
@@ -149,7 +153,7 @@ export async function getProspeccaoSnapshot(
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
 
-  const [discoveries, approachedToday, replies] = await Promise.all([
+  const [discoveries, approachedToday, replies, run] = await Promise.all([
     runId
       ? admin
           .from("lead_discoveries")
@@ -169,6 +173,13 @@ export async function getProspeccaoSnapshot(
       .select("id", { count: "exact", head: true })
       .eq("company_id", companyId)
       .eq("needs_attention", true),
+    runId
+      ? admin
+          .from("discovery_runs")
+          .select("scale_status, target_opportunities")
+          .eq("id", runId)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
   ]);
 
   const rows = discoveries.data ?? [];
@@ -184,5 +195,7 @@ export async function getProspeccaoSnapshot(
     replies: replies.count ?? 0,
     running: campaign.outreach_status === "running",
     lastSearchAt: campaign.last_discovery_at,
+    target: run.data?.target_opportunities ?? campaign.max_opportunities ?? found,
+    searching: run.data?.scale_status === "active",
   };
 }
