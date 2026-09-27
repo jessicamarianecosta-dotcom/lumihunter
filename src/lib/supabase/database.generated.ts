@@ -440,10 +440,10 @@ export type Database = {
       }
       campaigns: {
         Row: {
+          audience_text: string | null
           channel: Database["public"]["Enums"]["channel_type"]
           city: string | null
           company_id: string
-          audience_text: string | null
           completed_at: string | null
           created_at: string
           created_by: string | null
@@ -453,7 +453,25 @@ export type Database = {
           icp_id: string | null
           id: string
           last_discovery_at: string | null
+          max_opportunities: number
           name: string
+          outreach_automatic: boolean
+          outreach_base_message: string | null
+          outreach_catalog_pdf_id: string | null
+          outreach_catalog_product_id: string | null
+          outreach_consecutive_errors: number
+          outreach_daily_limit: number
+          outreach_last_sent_at: string | null
+          outreach_min_interval_seconds: number
+          outreach_personalize_ai: boolean
+          outreach_send_catalog: boolean
+          outreach_started_at: string | null
+          outreach_status: string
+          outreach_template_lang: string
+          outreach_template_name: string | null
+          outreach_timezone: string
+          outreach_window_end: string
+          outreach_window_start: string
           product_id: string | null
           product_text: string | null
           regions: string[]
@@ -463,24 +481,6 @@ export type Database = {
           target_count: number | null
           template_id: string | null
           updated_at: string
-          outreach_status: string
-          outreach_daily_limit: number
-          outreach_window_start: string
-          outreach_window_end: string
-          outreach_min_interval_seconds: number
-          outreach_timezone: string
-          outreach_base_message: string | null
-          outreach_personalize_ai: boolean
-          outreach_send_catalog: boolean
-          outreach_catalog_pdf_id: string | null
-          outreach_template_name: string | null
-          outreach_template_lang: string
-          outreach_catalog_product_id: string | null
-          outreach_consecutive_errors: number
-          outreach_last_sent_at: string | null
-          outreach_started_at: string | null
-          outreach_automatic: boolean
-          max_opportunities: number
         }
         Insert: {
           audience_text?: string | null
@@ -496,7 +496,25 @@ export type Database = {
           icp_id?: string | null
           id?: string
           last_discovery_at?: string | null
+          max_opportunities?: number
           name: string
+          outreach_automatic?: boolean
+          outreach_base_message?: string | null
+          outreach_catalog_pdf_id?: string | null
+          outreach_catalog_product_id?: string | null
+          outreach_consecutive_errors?: number
+          outreach_daily_limit?: number
+          outreach_last_sent_at?: string | null
+          outreach_min_interval_seconds?: number
+          outreach_personalize_ai?: boolean
+          outreach_send_catalog?: boolean
+          outreach_started_at?: string | null
+          outreach_status?: string
+          outreach_template_lang?: string
+          outreach_template_name?: string | null
+          outreach_timezone?: string
+          outreach_window_end?: string
+          outreach_window_start?: string
           product_id?: string | null
           product_text?: string | null
           regions?: string[]
@@ -506,24 +524,6 @@ export type Database = {
           target_count?: number | null
           template_id?: string | null
           updated_at?: string
-          outreach_status?: string
-          outreach_daily_limit?: number
-          outreach_window_start?: string
-          outreach_window_end?: string
-          outreach_min_interval_seconds?: number
-          outreach_timezone?: string
-          outreach_base_message?: string | null
-          outreach_personalize_ai?: boolean
-          outreach_send_catalog?: boolean
-          outreach_catalog_pdf_id?: string | null
-          outreach_template_name?: string | null
-          outreach_template_lang?: string
-          outreach_catalog_product_id?: string | null
-          outreach_consecutive_errors?: number
-          outreach_last_sent_at?: string | null
-          outreach_started_at?: string | null
-          outreach_automatic?: boolean
-          max_opportunities?: number
         }
         Update: {
           audience_text?: string | null
@@ -539,7 +539,25 @@ export type Database = {
           icp_id?: string | null
           id?: string
           last_discovery_at?: string | null
+          max_opportunities?: number
           name?: string
+          outreach_automatic?: boolean
+          outreach_base_message?: string | null
+          outreach_catalog_pdf_id?: string | null
+          outreach_catalog_product_id?: string | null
+          outreach_consecutive_errors?: number
+          outreach_daily_limit?: number
+          outreach_last_sent_at?: string | null
+          outreach_min_interval_seconds?: number
+          outreach_personalize_ai?: boolean
+          outreach_send_catalog?: boolean
+          outreach_started_at?: string | null
+          outreach_status?: string
+          outreach_template_lang?: string
+          outreach_template_name?: string | null
+          outreach_timezone?: string
+          outreach_window_end?: string
+          outreach_window_start?: string
           product_id?: string | null
           product_text?: string | null
           regions?: string[]
@@ -549,24 +567,6 @@ export type Database = {
           target_count?: number | null
           template_id?: string | null
           updated_at?: string
-          outreach_status?: string
-          outreach_daily_limit?: number
-          outreach_window_start?: string
-          outreach_window_end?: string
-          outreach_min_interval_seconds?: number
-          outreach_timezone?: string
-          outreach_base_message?: string | null
-          outreach_personalize_ai?: boolean
-          outreach_send_catalog?: boolean
-          outreach_catalog_pdf_id?: string | null
-          outreach_template_name?: string | null
-          outreach_template_lang?: string
-          outreach_catalog_product_id?: string | null
-          outreach_consecutive_errors?: number
-          outreach_last_sent_at?: string | null
-          outreach_started_at?: string | null
-          outreach_automatic?: boolean
-          max_opportunities?: number
         }
         Relationships: [
           {
@@ -584,6 +584,13 @@ export type Database = {
             referencedColumns: ["company_id"]
           },
           {
+            foreignKeyName: "campaigns_current_discovery_run_id_fkey"
+            columns: ["current_discovery_run_id"]
+            isOneToOne: false
+            referencedRelation: "discovery_runs"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "campaigns_followup_fk"
             columns: ["followup_sequence_id"]
             isOneToOne: false
@@ -595,6 +602,20 @@ export type Database = {
             columns: ["icp_id"]
             isOneToOne: false
             referencedRelation: "icp_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaigns_outreach_catalog_pdf_id_fkey"
+            columns: ["outreach_catalog_pdf_id"]
+            isOneToOne: false
+            referencedRelation: "catalog_pdfs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaigns_outreach_catalog_product_id_fkey"
+            columns: ["outreach_catalog_product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
             referencedColumns: ["id"]
           },
           {
@@ -772,6 +793,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "companies"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "catalog_pdfs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "dashboard_metrics"
+            referencedColumns: ["company_id"]
           },
           {
             foreignKeyName: "catalog_pdfs_import_job_id_fkey"
@@ -1121,14 +1149,118 @@ export type Database = {
             referencedRelation: "leads"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "conversations_outreach_campaign_id_fkey"
+            columns: ["outreach_campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      discovery_log: {
+        Row: {
+          batch: number
+          campaign_id: string
+          company_id: string
+          created_at: string
+          discovery_run_id: string | null
+          duplicates: number
+          failed: number
+          id: string
+          new_candidates: number
+          qualified: number
+          query: string
+          ready_to_send: number
+          reject_breakdown: Json
+          rejected: number
+          results_returned: number
+          sent: number
+          source: string
+          whatsapp_confirmed: number
+          whatsapp_found: number
+        }
+        Insert: {
+          batch?: number
+          campaign_id: string
+          company_id: string
+          created_at?: string
+          discovery_run_id?: string | null
+          duplicates?: number
+          failed?: number
+          id?: string
+          new_candidates?: number
+          qualified?: number
+          query: string
+          ready_to_send?: number
+          reject_breakdown?: Json
+          rejected?: number
+          results_returned?: number
+          sent?: number
+          source?: string
+          whatsapp_confirmed?: number
+          whatsapp_found?: number
+        }
+        Update: {
+          batch?: number
+          campaign_id?: string
+          company_id?: string
+          created_at?: string
+          discovery_run_id?: string | null
+          duplicates?: number
+          failed?: number
+          id?: string
+          new_candidates?: number
+          qualified?: number
+          query?: string
+          ready_to_send?: number
+          reject_breakdown?: Json
+          rejected?: number
+          results_returned?: number
+          sent?: number
+          source?: string
+          whatsapp_confirmed?: number
+          whatsapp_found?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "discovery_log_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "discovery_log_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "discovery_log_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "dashboard_metrics"
+            referencedColumns: ["company_id"]
+          },
+          {
+            foreignKeyName: "discovery_log_discovery_run_id_fkey"
+            columns: ["discovery_run_id"]
+            isOneToOne: false
+            referencedRelation: "discovery_runs"
+            referencedColumns: ["id"]
+          },
         ]
       }
       discovery_runs: {
         Row: {
           ai_used: boolean
+          batch_count: number
           buyer_profile_source: string | null
           buyer_segments: Json
           campaign_id: string
+          candidates_count: number
           company_id: string
           competitors: number
           completed_at: string | null
@@ -1138,29 +1270,29 @@ export type Database = {
           error: string | null
           found: number
           id: string
+          last_batch_at: string | null
+          mode: string
           no_whatsapp: number
+          pending_queries: Json
           prospectable: number
           qualified: number
           queries_count: number
           raw_count: number
+          regions_expanded: Json
+          scale_status: string | null
           started_at: string
           status: string
-          updated_at: string
-          mode: string
-          scale_status: string | null
-          batch_count: number
-          candidates_count: number
           target_opportunities: number | null
-          pending_queries: Json
+          updated_at: string
           used_queries: Json
-          regions_expanded: Json
-          last_batch_at: string | null
         }
         Insert: {
           ai_used?: boolean
+          batch_count?: number
           buyer_profile_source?: string | null
           buyer_segments?: Json
           campaign_id: string
+          candidates_count?: number
           company_id: string
           competitors?: number
           completed_at?: string | null
@@ -1170,29 +1302,29 @@ export type Database = {
           error?: string | null
           found?: number
           id?: string
+          last_batch_at?: string | null
+          mode?: string
           no_whatsapp?: number
+          pending_queries?: Json
           prospectable?: number
           qualified?: number
           queries_count?: number
           raw_count?: number
+          regions_expanded?: Json
+          scale_status?: string | null
           started_at?: string
           status?: string
-          updated_at?: string
-          mode?: string
-          scale_status?: string | null
-          batch_count?: number
-          candidates_count?: number
           target_opportunities?: number | null
-          pending_queries?: Json
+          updated_at?: string
           used_queries?: Json
-          regions_expanded?: Json
-          last_batch_at?: string | null
         }
         Update: {
           ai_used?: boolean
+          batch_count?: number
           buyer_profile_source?: string | null
           buyer_segments?: Json
           campaign_id?: string
+          candidates_count?: number
           company_id?: string
           competitors?: number
           completed_at?: string | null
@@ -1202,23 +1334,21 @@ export type Database = {
           error?: string | null
           found?: number
           id?: string
+          last_batch_at?: string | null
+          mode?: string
           no_whatsapp?: number
+          pending_queries?: Json
           prospectable?: number
           qualified?: number
           queries_count?: number
           raw_count?: number
+          regions_expanded?: Json
+          scale_status?: string | null
           started_at?: string
           status?: string
-          updated_at?: string
-          mode?: string
-          scale_status?: string | null
-          batch_count?: number
-          candidates_count?: number
           target_opportunities?: number | null
-          pending_queries?: Json
+          updated_at?: string
           used_queries?: Json
-          regions_expanded?: Json
-          last_batch_at?: string | null
         }
         Relationships: [
           {
@@ -1235,73 +1365,14 @@ export type Database = {
             referencedRelation: "companies"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "discovery_runs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "dashboard_metrics"
+            referencedColumns: ["company_id"]
+          },
         ]
-      }
-      discovery_log: {
-        Row: {
-          id: string
-          company_id: string
-          campaign_id: string
-          discovery_run_id: string | null
-          batch: number
-          query: string
-          source: string
-          results_returned: number
-          new_candidates: number
-          duplicates: number
-          rejected: number
-          reject_breakdown: Json
-          qualified: number
-          whatsapp_found: number
-          whatsapp_confirmed: number
-          ready_to_send: number
-          sent: number
-          failed: number
-          created_at: string
-        }
-        Insert: {
-          id?: string
-          company_id: string
-          campaign_id: string
-          discovery_run_id?: string | null
-          batch?: number
-          query: string
-          source?: string
-          results_returned?: number
-          new_candidates?: number
-          duplicates?: number
-          rejected?: number
-          reject_breakdown?: Json
-          qualified?: number
-          whatsapp_found?: number
-          whatsapp_confirmed?: number
-          ready_to_send?: number
-          sent?: number
-          failed?: number
-          created_at?: string
-        }
-        Update: {
-          id?: string
-          company_id?: string
-          campaign_id?: string
-          discovery_run_id?: string | null
-          batch?: number
-          query?: string
-          source?: string
-          results_returned?: number
-          new_candidates?: number
-          duplicates?: number
-          rejected?: number
-          reject_breakdown?: Json
-          qualified?: number
-          whatsapp_found?: number
-          whatsapp_confirmed?: number
-          ready_to_send?: number
-          sent?: number
-          failed?: number
-          created_at?: string
-        }
-        Relationships: []
       }
       followup_sequences: {
         Row: {
@@ -1710,35 +1781,31 @@ export type Database = {
           business_fit_score: number | null
           business_type: string | null
           buyer_fit_score: number | null
-          channel_requirement: string | null
-          competitor: boolean
-          discard_reason: string | null
-          individual_business: boolean
-          product_match_name: string | null
-          product_match_reason: string | null
-          whatsapp_evidence: string | null
-          whatsapp_verified: boolean
-          evidence: Json
-          product_fit_score: number | null
-          result_type: string | null
-          source_quality: number | null
           campaign_id: string
+          channel_requirement: string | null
           city: string | null
           company_id: string
           company_name: string
+          competitor: boolean
           country: string | null
           created_at: string
           dedupe_key: string
           description: string | null
+          discard_reason: string | null
           discovered_at: string
           discovery_query: string | null
           discovery_run_id: string | null
           email: string | null
+          evidence: Json
           id: string
+          individual_business: boolean
           instagram: string | null
           lead_id: string | null
           legal_name: string | null
           phone: string | null
+          product_fit_score: number | null
+          product_match_name: string | null
+          product_match_reason: string | null
           qualification: string | null
           qualification_reason: string | null
           qualification_signals: Json
@@ -1746,15 +1813,19 @@ export type Database = {
           raw: Json
           recommended_approach: string | null
           rejected_at: string | null
+          result_type: string | null
           score: number | null
           segment: string | null
           source: string
+          source_quality: number | null
           source_url: string | null
           state: string | null
           status: string
           updated_at: string
           website: string | null
           whatsapp: string | null
+          whatsapp_evidence: string | null
+          whatsapp_verified: boolean
         }
         Insert: {
           address?: string | null
@@ -1763,35 +1834,31 @@ export type Database = {
           business_fit_score?: number | null
           business_type?: string | null
           buyer_fit_score?: number | null
-          channel_requirement?: string | null
-          competitor?: boolean
-          discard_reason?: string | null
-          individual_business?: boolean
-          product_match_name?: string | null
-          product_match_reason?: string | null
-          whatsapp_evidence?: string | null
-          whatsapp_verified?: boolean
-          evidence?: Json
-          product_fit_score?: number | null
-          result_type?: string | null
-          source_quality?: number | null
           campaign_id: string
+          channel_requirement?: string | null
           city?: string | null
           company_id: string
           company_name: string
+          competitor?: boolean
           country?: string | null
           created_at?: string
           dedupe_key: string
           description?: string | null
+          discard_reason?: string | null
           discovered_at?: string
           discovery_query?: string | null
           discovery_run_id?: string | null
           email?: string | null
+          evidence?: Json
           id?: string
+          individual_business?: boolean
           instagram?: string | null
           lead_id?: string | null
           legal_name?: string | null
           phone?: string | null
+          product_fit_score?: number | null
+          product_match_name?: string | null
+          product_match_reason?: string | null
           qualification?: string | null
           qualification_reason?: string | null
           qualification_signals?: Json
@@ -1799,15 +1866,19 @@ export type Database = {
           raw?: Json
           recommended_approach?: string | null
           rejected_at?: string | null
+          result_type?: string | null
           score?: number | null
           segment?: string | null
           source?: string
+          source_quality?: number | null
           source_url?: string | null
           state?: string | null
           status?: string
           updated_at?: string
           website?: string | null
           whatsapp?: string | null
+          whatsapp_evidence?: string | null
+          whatsapp_verified?: boolean
         }
         Update: {
           address?: string | null
@@ -1816,35 +1887,31 @@ export type Database = {
           business_fit_score?: number | null
           business_type?: string | null
           buyer_fit_score?: number | null
-          channel_requirement?: string | null
-          competitor?: boolean
-          discard_reason?: string | null
-          individual_business?: boolean
-          product_match_name?: string | null
-          product_match_reason?: string | null
-          whatsapp_evidence?: string | null
-          whatsapp_verified?: boolean
-          evidence?: Json
-          product_fit_score?: number | null
-          result_type?: string | null
-          source_quality?: number | null
           campaign_id?: string
+          channel_requirement?: string | null
           city?: string | null
           company_id?: string
           company_name?: string
+          competitor?: boolean
           country?: string | null
           created_at?: string
           dedupe_key?: string
           description?: string | null
+          discard_reason?: string | null
           discovered_at?: string
           discovery_query?: string | null
           discovery_run_id?: string | null
           email?: string | null
+          evidence?: Json
           id?: string
+          individual_business?: boolean
           instagram?: string | null
           lead_id?: string | null
           legal_name?: string | null
           phone?: string | null
+          product_fit_score?: number | null
+          product_match_name?: string | null
+          product_match_reason?: string | null
           qualification?: string | null
           qualification_reason?: string | null
           qualification_signals?: Json
@@ -1852,15 +1919,19 @@ export type Database = {
           raw?: Json
           recommended_approach?: string | null
           rejected_at?: string | null
+          result_type?: string | null
           score?: number | null
           segment?: string | null
           source?: string
+          source_quality?: number | null
           source_url?: string | null
           state?: string | null
           status?: string
           updated_at?: string
           website?: string | null
           whatsapp?: string | null
+          whatsapp_evidence?: string | null
+          whatsapp_verified?: boolean
         }
         Relationships: [
           {
@@ -1875,6 +1946,20 @@ export type Database = {
             columns: ["company_id"]
             isOneToOne: false
             referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_discoveries_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "dashboard_metrics"
+            referencedColumns: ["company_id"]
+          },
+          {
+            foreignKeyName: "lead_discoveries_discovery_run_id_fkey"
+            columns: ["discovery_run_id"]
+            isOneToOne: false
+            referencedRelation: "discovery_runs"
             referencedColumns: ["id"]
           },
           {
@@ -2387,6 +2472,176 @@ export type Database = {
           },
         ]
       }
+      number_sweep_attempts: {
+        Row: {
+          attempted_at: string
+          candidate_number: number
+          company_id: string
+          failure_code: string | null
+          failure_reason: string | null
+          id: string
+          message_template_used: string | null
+          phone: string
+          provider_message_id: string | null
+          status: string
+          sweep_id: string
+        }
+        Insert: {
+          attempted_at?: string
+          candidate_number: number
+          company_id: string
+          failure_code?: string | null
+          failure_reason?: string | null
+          id?: string
+          message_template_used?: string | null
+          phone: string
+          provider_message_id?: string | null
+          status: string
+          sweep_id: string
+        }
+        Update: {
+          attempted_at?: string
+          candidate_number?: number
+          company_id?: string
+          failure_code?: string | null
+          failure_reason?: string | null
+          id?: string
+          message_template_used?: string | null
+          phone?: string
+          provider_message_id?: string | null
+          status?: string
+          sweep_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "number_sweep_attempts_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "number_sweep_attempts_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "dashboard_metrics"
+            referencedColumns: ["company_id"]
+          },
+          {
+            foreignKeyName: "number_sweep_attempts_sweep_id_fkey"
+            columns: ["sweep_id"]
+            isOneToOne: false
+            referencedRelation: "number_sweeps"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      number_sweeps: {
+        Row: {
+          attempted_count: number
+          catalog_pdf_id: string | null
+          company_id: string
+          consecutive_errors: number
+          created_at: string
+          created_by: string | null
+          ddd: string
+          failed_count: number
+          id: string
+          interval_seconds: number
+          invalid_count: number
+          last_sent_at: string | null
+          message_templates: Json
+          name: string
+          next_number: number
+          next_template_index: number
+          quantity_target: number
+          sent_count: number
+          skipped_count: number
+          start_number: number
+          status: string
+          timezone: string
+          updated_at: string
+          window_end: string | null
+          window_start: string | null
+        }
+        Insert: {
+          attempted_count?: number
+          catalog_pdf_id?: string | null
+          company_id: string
+          consecutive_errors?: number
+          created_at?: string
+          created_by?: string | null
+          ddd: string
+          failed_count?: number
+          id?: string
+          interval_seconds?: number
+          invalid_count?: number
+          last_sent_at?: string | null
+          message_templates?: Json
+          name: string
+          next_number: number
+          next_template_index?: number
+          quantity_target: number
+          sent_count?: number
+          skipped_count?: number
+          start_number: number
+          status?: string
+          timezone?: string
+          updated_at?: string
+          window_end?: string | null
+          window_start?: string | null
+        }
+        Update: {
+          attempted_count?: number
+          catalog_pdf_id?: string | null
+          company_id?: string
+          consecutive_errors?: number
+          created_at?: string
+          created_by?: string | null
+          ddd?: string
+          failed_count?: number
+          id?: string
+          interval_seconds?: number
+          invalid_count?: number
+          last_sent_at?: string | null
+          message_templates?: Json
+          name?: string
+          next_number?: number
+          next_template_index?: number
+          quantity_target?: number
+          sent_count?: number
+          skipped_count?: number
+          start_number?: number
+          status?: string
+          timezone?: string
+          updated_at?: string
+          window_end?: string | null
+          window_start?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "number_sweeps_catalog_pdf_id_fkey"
+            columns: ["catalog_pdf_id"]
+            isOneToOne: false
+            referencedRelation: "catalog_pdfs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "number_sweeps_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "number_sweeps_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "dashboard_metrics"
+            referencedColumns: ["company_id"]
+          },
+        ]
+      }
       outreach_queue: {
         Row: {
           attempt_count: number
@@ -2493,6 +2748,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "companies"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_queue_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "dashboard_metrics"
+            referencedColumns: ["company_id"]
           },
           {
             foreignKeyName: "outreach_queue_lead_id_fkey"

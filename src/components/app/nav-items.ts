@@ -14,6 +14,7 @@ import {
   ScrollText,
   Settings,
   HelpCircle,
+  ListOrdered,
   type LucideIcon,
 } from "lucide-react";
 
@@ -34,6 +35,7 @@ export const NAV_ITEMS: NavItem[] = [
 // Reative aqui quando precisar de CRM/ICP/agentes/relatórios de novo.
 export const HIDDEN_NAV_ITEMS: NavItem[] = [
   { href: "/campanhas", label: "Campanhas (avançado)", icon: Megaphone },
+  { href: "/lista-numeros", label: "Lista de números (avançado)", icon: ListOrdered },
   { href: "/leads", label: "Leads & CRM", icon: Users },
   { href: "/empresas", label: "Empresas", icon: Building2 },
   { href: "/conhecimento", label: "Base LumiLife", icon: BookOpen },

@@ -875,6 +875,24 @@ export default async function ConfigPage() {
           <SeedLumiLifeButton />
         </CardContent>
       </Card>
+
+      <Card>
+        <CardContent className="space-y-2 p-5">
+          <p className="text-sm font-medium">Módulos avançados</p>
+          <p className="text-xs text-muted-foreground">
+            Fora do menu principal para manter a tela simples, mas disponíveis
+            quando precisar.
+          </p>
+          <div className="flex flex-wrap gap-3 pt-1 text-sm">
+            <a href="/campanhas" className="text-primary underline-offset-4 hover:underline">
+              Campanhas por segmento/região
+            </a>
+            <a href="/lista-numeros" className="text-primary underline-offset-4 hover:underline">
+              Envio para lista de números (DDD + sequência)
+            </a>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

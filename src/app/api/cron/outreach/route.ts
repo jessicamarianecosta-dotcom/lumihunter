@@ -1,11 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { drainRunningCampaigns, backfillPendingOutreachFollowups } from "@/lib/outreach/worker";
+import { drainRunningSweeps } from "@/lib/sweeps/worker";
 
 export const maxDuration = 300;
 
 /**
- * Drena as filas de prospecção ativas. Também é chamado pelo cron diário
+ * Drena as filas de prospecção ativas (por campanha) e as sweeps de lista
+ * sequencial de números (Módulo 2). Também é chamado pelo cron diário
  * `/api/cron/followups`. Aqui fica disponível para acionamento manual/externo.
  * Protegido por CRON_SECRET (Authorization: Bearer ...).
  */
@@ -15,7 +17,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "não autorizado" }, { status: 401 });
   }
   const admin = createAdminClient();
-  const result = await drainRunningCampaigns(admin, { budgetMs: 250_000 });
+  const result = await drainRunningCampaigns(admin, { budgetMs: 200_000 });
   const followupBackfill = await backfillPendingOutreachFollowups(admin);
-  return NextResponse.json({ ...result, followupBackfill });
+  const sweeps = await drainRunningSweeps(admin, { budgetMs: 40_000 });
+  return NextResponse.json({ ...result, followupBackfill, sweeps });
 }

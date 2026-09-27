@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendMessage as sendWhatsAppMessage } from "@/lib/whatsapp/service";
 import { drainRunningCampaigns } from "@/lib/outreach/worker";
+import { drainRunningSweeps } from "@/lib/sweeps/worker";
 import { activeScaleRuns, runScaleBatch } from "@/lib/discovery/scale";
 import { normalizePhoneBR } from "@/lib/utils";
 
@@ -39,7 +40,10 @@ export async function GET(req: NextRequest) {
   }
 
   // 1) Fila de prospecção (Fase 2) — orçamento de 200s, deixa o resto p/ follow-ups
-  const outreach = await drainRunningCampaigns(admin, { budgetMs: 160_000 });
+  const outreach = await drainRunningCampaigns(admin, { budgetMs: 150_000 });
+
+  // 1b) Módulo 2 — lista sequencial de números
+  const sweeps = await drainRunningSweeps(admin, { budgetMs: 30_000 });
 
   const { data: due } = await admin
     .from("campaign_targets")
@@ -120,6 +124,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     discovery: { activeRuns: scaleRuns.length, batches: scaleBatches },
     outreach,
+    sweeps,
     followups: { due: due?.length ?? 0, processed },
   });
 }
